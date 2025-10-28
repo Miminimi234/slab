@@ -1,0 +1,122 @@
+**REPLIT PROMPT — paste as a single instruction**
+
+Integrate **Percolator (Router + Slab)** into the existing SLAB frontend. Use a Replit (Nix) workspace with Rust, Solana, Node, and PNPM. Wire real on-chain calls behind our current mocks. Program IDs (from spec):
+
+* **Router**: `RoutR1VdCpHqj89WEMJhb6TkGT9cPfr1rVjhM3e2YQr`
+* **Slab**: `SLabZ6PsDLh2X6HzEoqxFDMqCVcJXDKCNEYuPzUvGPk`
+
+### 0) Replit setup (Nix + tooling)
+
+* Create `replit.nix` with: `rustc`, `cargo`, `nodejs_20`, `pnpm`, `solana-cli`, `llvm`, `binaryen`, `pkg-config`, `openssl`, `zlib`.
+* `.replit` run = `pnpm dev`.
+* Add scripts to `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "chain:build": "cd chain/percolator && cargo build-sbf",
+    "chain:test": "cd chain/percolator && cargo test --release",
+    "idl:export": "node scripts/export-idl.mjs",
+    "client:gen": "node scripts/gen-client.mjs",
+    "local:validator": "solana-test-validator --reset -q",
+    "deploy:router": "solana program deploy chain/percolator/target/deploy/percolator_router.so",
+    "deploy:slab": "solana program deploy chain/percolator/target/deploy/percolator_slab.so"
+  }
+}
+```
+
+### 1) Bring in Percolator
+
+* Add as submodule: `git submodule add https://github.com/aeyakovenko/percolator chain/percolator`
+* Ensure it keeps Pinocchio workspace intact.
+
+### 2) Env & IDs
+
+* Create `.env.local` (Vite style) with:
+
+```
+VITE_SOLANA_RPC=https://api.mainnet-beta.solana.com
+VITE_ROUTER_ID=RoutR1VdCpHqj89WEMJhb6TkGT9cPfr1rVjhM3e2YQr
+VITE_SLAB_CODE_HASH=SLabZ6PsDLh2X6HzEoqxFDMqCVcJXDKCNEYuPzUvGPk
+VITE_USDC_MINT=Es9vMFrzaCER…   # set as needed
+```
+
+### 3) Client SDK (TypeScript, Pinocchio-style)
+
+Create `src/percolator/`:
+
+* `connection.ts` — RPC + priority fee helper.
+* `pdas.ts` — PDA helpers:
+
+  * `vaultPda(mint) = [b"vault", mint]`
+  * `escrowPda(user, slab, mint) = [b"escrow", user, slab, mint]`
+  * `capPda(user, slab, mint, nonce) = [b"cap", user, slab, mint, nonce_u64]`
+  * `portfolioPda(user) = [b"portfolio", user]`
+  * `registryPda() = [b"registry"]`
+  * `slabStatePda(marketId) = [b"slab", marketId]`
+  * `slabAuthorityPda(slab) = [b"authority", slab]`
+* `router.ts` — transaction builders:
+
+  * `createMarket(params)`
+  * `mintCap({user, slab, mint, amountMax, ttlMs<=120000})`
+  * `settleFunding({trader, amount})`
+  * `freezeMarket(marketId)`, `unfreezeMarket(marketId)`
+* `slab.ts` — transaction builders:
+
+  * `initSlab({marketId, risk, antiToxicity})`
+  * `addInstrument({marketId, symbol, tick, lot, contractSize})`
+  * `reserve({routeId, iidx, side, qty, limitPx, ttlMs, commitmentHash})`
+  * `commit({holdId, cap})`
+  * `cancel({holdId})`
+  * `batchOpen({iidx})`
+  * `fundingTick({iidx})`
+  * `postOracle({nowcast, realized, validFrom, validTo})`
+  * `liquidate({trader, size, side})`
+* `types.ts` — enums (Side, TIF, MakerClass), fixed-point helpers (6-decimals).
+* `flows.ts` — high-level flows:
+
+  * `placePerpOrder({marketId, side, qty, limitPx})`: calls `reserve → mintCap → commit`, cancels on failure.
+  * `warmupGuards`: enforce long-only / short-cap in UI by reading SlabHeader flags.
+
+### 4) Replace mocks in UI
+
+Bind these to existing pages:
+
+* **Launch Wizard (/launch)**
+  On “Deploy”:
+
+  1. `initSlab(marketId)` with 10 MB account creation, write risk params (IM/MM, band_bps, funding caps, warmup flags).
+  2. `router.createMarket` (register in `SlabRegistry`).
+  3. `addInstrument(symbol)` and store `marketId` in local cache.
+* **Market page (/market/[symbol])**
+
+  * Trade ticket calls `placePerpOrder`.
+  * Show **cap TTL** countdown.
+  * Warmup state → disable shorts; show reason from SlabHeader.
+  * Risk badges read from SlabHeader (max lev, band_bps, funding_cap_bps, OI cap).
+
+### 5) Minimal oracle poster (dev-only)
+
+* Add `scripts/oracle-dev.mjs`: posts `nowcast` and (rolling) `realized_t+60m` to the slab at intervals via `postOracle()`; gate with a signer keypair JSON in `/keys/`.
+
+### 6) Local validator path (optional)
+
+* Start validator in a separate tab (`pnpm local:validator`), set `VITE_SOLANA_RPC=http://127.0.0.1:8899`.
+* Build & deploy programs (`pnpm chain:build && pnpm deploy:router && pnpm deploy:slab`).
+* Write the deployed IDs back into `.env.local`.
+
+### 7) Safety invariants enforced client-side
+
+* Cap TTL ≤ **120s**.
+* Reject commits if `now > expiry` or `debit > cap.remaining`.
+* Enforce price bands (read from header).
+* Short disabled in warmup; short open fee modal when locked.
+
+### 8) Deliverables in repo
+
+* `replit.nix`, `.replit`, `package.json` scripts.
+* Submodule at `chain/percolator`.
+* `src/percolator/*` client SDK + flows.
+* UI wired: Launch → Register → Warmup trade (long-only) works against real tx builders.
+* Clear TODOs where on-chain instruction discriminators/IX layouts map to Pinocchio structs once finalized.

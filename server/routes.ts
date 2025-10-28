@@ -1,0 +1,654 @@
+import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { jupiterService } from "./jupiterService";
+import { jupiterTopTrendingService } from "./jupiterTopTrendingService";
+import launchpadRoutes from "./launchpadRoutes";
+import { priceService } from "./priceService";
+import { isAuthenticated, setupAuth } from "./replitAuth";
+import { storage } from "./storage";
+import { WalletService } from "./walletService";
+import { getWalletBalance, signTransaction, transferSol } from "./walletSigning";
+
+// Solana connection (devnet for now)
+const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup authentication middleware
+  await setupAuth(app);
+  await jupiterService.start();
+  await jupiterTopTrendingService.start();
+  await priceService.start();
+
+  // Wallet connection endpoint - creates user session with wallet info
+  app.post("/api/auth/wallet-connect", async (req: any, res) => {
+    try {
+      const { publicKey, walletType } = req.body;
+      const normalizedWalletType = typeof walletType === "string" ? walletType.toLowerCase() : "unknown";
+
+      if (!publicKey || !walletType) {
+        return res.status(400).json({ message: "Public key and wallet type are required" });
+      }
+
+      // Create a user ID based on the public key (in production, you might want more sophisticated logic)
+      const walletSessionId = `wallet_session_${Math.random().toString(36).slice(2)}`;
+      const userId = req.user?.id || walletSessionId;
+
+      // Create/update user with wallet info
+      const userData = {
+        id: userId,
+        email: req.user?.email || `${publicKey.slice(0, 8)}@wallet.local`,
+        firstName: "Wallet",
+        lastName: "User",
+        profileImageUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${publicKey}`,
+      };
+
+      const user = await storage.upsertUser(userData);
+
+      const sessionUser = {
+        id: userId,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        claims: { sub: userId, email: userData.email },
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        req.login(sessionUser as any, (err: any) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+
+      // Create or get user's wallet
+      let wallet = await storage.getUserWallet(userId);
+      if (!wallet) {
+        // Create wallet with the connected public key
+        wallet = await storage.createAdditionalWallet({
+          userId,
+          name: `Connected Wallet (${normalizedWalletType.toUpperCase()})`,
+          publicKey,
+          encryptedPrivateKey: "external-wallet",
+          balance: "0",
+          isPrimary: "true",
+          isArchived: "false"
+        });
+      }
+
+      // Create a simple session (in production, use proper session management)
+      if (req.session) {
+        req.session.user = {
+          id: userId,
+          publicKey,
+          walletType,
+          email: userData.email,
+        };
+      }
+
+      res.json({
+        success: true,
+        user: {
+          ...user,
+          wallet: {
+            publicKey: wallet.publicKey,
+            balance: wallet.balance
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Wallet connection error:", error);
+      res.status(500).json({ message: "Failed to connect wallet" });
+    }
+  });
+
+  // Auth routes - Return null if not authenticated (don't use isAuthenticated middleware)
+  app.get("/api/auth/user", async (req: any, res) => {
+    try {
+      // If not authenticated via passport or session, return null (not 401)
+      if (!req.isAuthenticated() && !req.session?.user) {
+        return res.json(null);
+      }
+
+      // Handle both development and production user objects, and session-based wallet auth
+      const userId = req.user?.claims?.sub || req.user?.id || req.session?.user?.id;
+
+      if (!userId) {
+        return res.json(null);
+      }
+
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Get or create user's wallet
+      let wallet = await storage.getUserWallet(userId);
+      if (!wallet) {
+        wallet = await storage.createWallet(userId);
+      }
+
+      // Return user with wallet info (but not private key)
+      res.json({
+        ...user,
+        wallet: {
+          publicKey: wallet.publicKey,
+          balance: wallet.balance,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Get wallet balance from blockchain
+  app.get("/api/wallet/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const wallet = await storage.getUserWallet(userId);
+
+      if (!wallet) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      // Fetch balance from Solana blockchain
+      const publicKey = new PublicKey(wallet.publicKey);
+      const balance = await connection.getBalance(publicKey);
+      const balanceInSol = balance / LAMPORTS_PER_SOL;
+
+      // Update stored balance
+      await storage.updateWalletBalance(wallet.id, balanceInSol.toString());
+
+      res.json({ balance: balanceInSol });
+    } catch (error) {
+      console.error("Error fetching wallet balance:", error);
+      res.status(500).json({ message: "Failed to fetch balance" });
+    }
+  });
+
+  // Export private key (IMPORTANT: User must be authenticated)
+  app.get("/api/wallet/export-key", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const wallet = await storage.getUserWallet(userId);
+
+      if (!wallet) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      // Decrypt and return private key in base58 format
+      const privateKey = WalletService.exportPrivateKey(wallet.encryptedPrivateKey);
+
+      res.json({ privateKey });
+    } catch (error) {
+      console.error("Error exporting private key:", error);
+      res.status(500).json({ message: "Failed to export private key" });
+    }
+  });
+
+  // Create wallet (in case user wants to regenerate)
+  app.post("/api/wallet/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+
+      // Check if wallet already exists
+      const existingWallet = await storage.getUserWallet(userId);
+      if (existingWallet) {
+        return res.status(400).json({ message: "Wallet already exists" });
+      }
+
+      // Create new wallet
+      const wallet = await storage.createWallet(userId);
+
+      res.json({
+        publicKey: wallet.publicKey,
+        balance: wallet.balance,
+      });
+    } catch (error) {
+      console.error("Error creating wallet:", error);
+      res.status(500).json({ message: "Failed to create wallet" });
+    }
+  });
+
+  // Withdraw SOL from custodial wallet
+  app.post("/api/wallet/withdraw", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const { recipientAddress, amount } = req.body;
+
+      // Validate inputs
+      if (!recipientAddress || !amount) {
+        return res.status(400).json({ message: "Recipient address and amount are required" });
+      }
+
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      // Get user's wallet
+      const wallet = await storage.getUserWallet(userId);
+      if (!wallet) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      // Validate recipient address
+      let recipientPubKey: PublicKey;
+      try {
+        recipientPubKey = new PublicKey(recipientAddress);
+      } catch (error) {
+        return res.status(400).json({ message: "Invalid recipient address" });
+      }
+
+      // Get keypair from encrypted private key
+      const keypair = WalletService.getKeypair(wallet.encryptedPrivateKey);
+
+      // Check balance
+      const balance = await connection.getBalance(keypair.publicKey);
+      const balanceInSol = balance / LAMPORTS_PER_SOL;
+
+      // Estimate transaction fee (5000 lamports is typical for simple transfer)
+      const estimatedFee = 5000 / LAMPORTS_PER_SOL;
+
+      if (balanceInSol < amountNum + estimatedFee) {
+        return res.status(400).json({
+          message: "Insufficient balance",
+          balance: balanceInSol,
+          required: amountNum + estimatedFee
+        });
+      }
+
+      // Create transaction
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: keypair.publicKey,
+          toPubkey: recipientPubKey,
+          lamports: Math.floor(amountNum * LAMPORTS_PER_SOL),
+        })
+      );
+
+      // Send transaction
+      const signature = await sendAndConfirmTransaction(
+        connection,
+        transaction,
+        [keypair],
+        { commitment: "confirmed" }
+      );
+
+      // Update balance in database
+      const newBalance = await connection.getBalance(keypair.publicKey);
+      const newBalanceInSol = newBalance / LAMPORTS_PER_SOL;
+      await storage.updateWalletBalance(wallet.id, newBalanceInSol.toString());
+
+      res.json({
+        success: true,
+        signature,
+        newBalance: newBalanceInSol,
+        explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`
+      });
+    } catch (error) {
+      console.error("Error withdrawing SOL:", error);
+      res.status(500).json({
+        message: "Failed to withdraw SOL",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // ========== MULTI-WALLET MANAGEMENT ENDPOINTS ==========
+
+  // List all wallets for authenticated user
+  app.get("/api/wallets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const allWallets = await storage.getAllUserWallets(userId);
+
+      // Don't expose encrypted private keys in list view
+      const sanitizedWallets = allWallets.map((w: any) => ({
+        id: w.id,
+        name: w.name,
+        publicKey: w.publicKey,
+        balance: w.balance,
+        isPrimary: w.isPrimary,
+        isArchived: w.isArchived,
+        createdAt: w.createdAt,
+      }));
+
+      res.json(sanitizedWallets);
+    } catch (error) {
+      console.error("Error fetching wallets:", error);
+      res.status(500).json({ message: "Failed to fetch wallets" });
+    }
+  });
+
+  // Create additional wallet for authenticated user
+  app.post("/api/wallets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const { name } = req.body;
+
+      if (!name || typeof name !== "string" || name.length === 0) {
+        return res.status(400).json({ message: "Wallet name is required" });
+      }
+
+      // Create new wallet
+      const { publicKey, encryptedPrivateKey } = WalletService.createWallet();
+
+      const newWallet = await storage.createAdditionalWallet({
+        userId,
+        name,
+        publicKey,
+        encryptedPrivateKey,
+        balance: "0",
+        isPrimary: "false",
+        isArchived: "false",
+      });
+
+      // Don't expose encrypted private key
+      res.json({
+        id: newWallet.id,
+        name: newWallet.name,
+        publicKey: newWallet.publicKey,
+        balance: newWallet.balance,
+        isPrimary: newWallet.isPrimary,
+        isArchived: newWallet.isArchived,
+      });
+    } catch (error) {
+      console.error("Error creating wallet:", error);
+      res.status(500).json({ message: "Failed to create wallet" });
+    }
+  });
+
+  // Update wallet (rename or archive)
+  app.patch("/api/wallets/:walletId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const { walletId } = req.params;
+      const { name, isArchived } = req.body;
+
+      const wallet = await storage.getWalletById(walletId);
+
+      if (!wallet || wallet.userId !== userId) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      const updatedWallet = await storage.updateWallet(walletId, {
+        name: name || wallet.name,
+        isArchived: isArchived !== undefined ? isArchived : wallet.isArchived,
+      });
+
+      res.json({
+        id: updatedWallet.id,
+        name: updatedWallet.name,
+        publicKey: updatedWallet.publicKey,
+        balance: updatedWallet.balance,
+        isPrimary: updatedWallet.isPrimary,
+        isArchived: updatedWallet.isArchived,
+      });
+    } catch (error) {
+      console.error("Error updating wallet:", error);
+      res.status(500).json({ message: "Failed to update wallet" });
+    }
+  });
+
+  // Refresh specific wallet balance from blockchain
+  app.get("/api/wallets/:walletId/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const { walletId } = req.params;
+
+      const wallet = await storage.getWalletById(walletId);
+
+      if (!wallet || wallet.userId !== userId) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      // Fetch balance from Solana blockchain
+      const publicKey = new PublicKey(wallet.publicKey);
+      const balance = await connection.getBalance(publicKey);
+      const balanceInSol = balance / LAMPORTS_PER_SOL;
+
+      // Update cached balance in database
+      await storage.updateWalletBalance(wallet.id, balanceInSol.toString());
+
+      res.json({
+        balance: balanceInSol,
+        publicKey: wallet.publicKey
+      });
+    } catch (error) {
+      console.error("Error fetching wallet balance:", error);
+      res.status(500).json({ message: "Failed to fetch balance" });
+    }
+  });
+
+  // Export private key for a specific wallet
+  app.get("/api/wallets/:walletId/export-key", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims?.sub || req.user.id;
+      const { walletId } = req.params;
+
+      const wallet = await storage.getWalletById(walletId);
+
+      if (!wallet || wallet.userId !== userId) {
+        return res.status(404).json({ message: "Wallet not found" });
+      }
+
+      const privateKey = WalletService.exportPrivateKey(wallet.encryptedPrivateKey);
+
+      res.json({ privateKey });
+    } catch (error) {
+      console.error("Error exporting private key:", error);
+      res.status(500).json({ message: "Failed to export private key" });
+    }
+  });
+
+  // Wallet signing routes
+  app.post("/api/wallet/sign-transaction", isAuthenticated, async (req: any, res) => {
+    try {
+      const { transaction, publicKey } = req.body;
+
+      if (!transaction || !publicKey) {
+        return res.status(400).json({ error: "Missing transaction or publicKey" });
+      }
+
+      const signedTransaction = await signTransaction(publicKey, transaction);
+      res.json({ signedTransaction });
+    } catch (error) {
+      console.error("Transaction signing error:", error);
+      res.status(500).json({ error: "Failed to sign transaction" });
+    }
+  });
+
+  app.get("/api/wallet/balance/:publicKey", isAuthenticated, async (req: any, res) => {
+    try {
+      const { publicKey } = req.params;
+      const balance = await getWalletBalance(publicKey);
+      res.json({ balance });
+    } catch (error) {
+      console.error("Balance fetch error:", error);
+      res.status(500).json({ error: "Failed to get balance" });
+    }
+  });
+
+  app.post("/api/wallet/transfer", isAuthenticated, async (req: any, res) => {
+    try {
+      const { fromPublicKey, toPublicKey, amount } = req.body;
+
+      if (!fromPublicKey || !toPublicKey || !amount) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const signature = await transferSol(fromPublicKey, toPublicKey, amount);
+      res.json({ signature });
+    } catch (error) {
+      console.error("Transfer error:", error);
+      res.status(500).json({ error: "Failed to transfer SOL" });
+    }
+  });
+
+  // Jupiter recent tokens (cached snapshot)
+  app.get("/api/jupiter/recent", (_req, res) => {
+    res.json(jupiterService.getSnapshot());
+  });
+
+  // Jupiter recent tokens stream (Server-Sent Events)
+  app.get("/api/jupiter/recent/stream", (req, res) => {
+    jupiterService.handleStream(req, res);
+  });
+
+  // Jupiter token search
+  app.get("/api/jupiter/search", async (req, res) => {
+    try {
+      const query = (req.query.query || req.query.q) as string | undefined;
+      const tokens = await jupiterService.searchTokens(query);
+
+      res.json({
+        success: true,
+        tokens: tokens,
+        query: query || null,
+        count: tokens.length
+      });
+    } catch (error) {
+      console.error("Error searching Jupiter tokens:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to search tokens",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Jupiter top traded tokens (cached snapshot)
+  app.get("/api/jupiter/top-trending", (_req, res) => {
+    res.json(jupiterTopTrendingService.getSnapshot());
+  });
+
+  // Jupiter top trending tokens stream (Server-Sent Events)
+  app.get("/api/jupiter/top-trending/stream", (req, res) => {
+    jupiterTopTrendingService.handleStream(req, res);
+  });
+
+  // ========== PRICE SERVICE ENDPOINTS ==========
+
+  // Get all crypto prices (BTC, ETH, SOL)
+  app.get("/api/prices", (_req, res) => {
+    try {
+      const prices = priceService.getAllPrices();
+      res.json({
+        success: true,
+        data: prices,
+        isStale: priceService.isStale()
+      });
+    } catch (error) {
+      console.error("Error fetching prices:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch prices"
+      });
+    }
+  });
+
+  // Get specific crypto price
+  app.get("/api/prices/:symbol", (req, res) => {
+    try {
+      const { symbol } = req.params;
+      const price = priceService.getPrice(symbol);
+
+      if (!price) {
+        return res.status(404).json({
+          success: false,
+          message: `Price data not found for ${symbol.toUpperCase()}`
+        });
+      }
+
+      res.json({
+        success: true,
+        data: price,
+        isStale: priceService.isStale(symbol)
+      });
+    } catch (error) {
+      console.error("Error fetching price:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch price"
+      });
+    }
+  });
+
+  // Get multiple crypto prices
+  app.post("/api/prices/batch", (req, res) => {
+    try {
+      const { symbols } = req.body;
+
+      if (!Array.isArray(symbols)) {
+        return res.status(400).json({
+          success: false,
+          message: "Symbols must be an array"
+        });
+      }
+
+      const prices = priceService.getPrices(symbols);
+
+      res.json({
+        success: true,
+        data: prices,
+        requested: symbols,
+        found: Object.keys(prices)
+      });
+    } catch (error) {
+      console.error("Error fetching batch prices:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch batch prices"
+      });
+    }
+  });
+
+  // Force refresh prices (admin endpoint)
+  app.post("/api/prices/refresh", async (_req, res) => {
+    try {
+      await priceService.refresh();
+      const prices = priceService.getAllPrices();
+
+      res.json({
+        success: true,
+        message: "Prices refreshed successfully",
+        data: prices
+      });
+    } catch (error) {
+      console.error("Error refreshing prices:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to refresh prices"
+      });
+    }
+  });
+
+  // Get price service status
+  app.get("/api/prices/status", (_req, res) => {
+    try {
+      const status = priceService.getStatus();
+      res.json({
+        success: true,
+        data: status
+      });
+    } catch (error) {
+      console.error("Error fetching price service status:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch service status"
+      });
+    }
+  });
+
+  // Register launchpad routes
+  app.use("/api/launchpad", launchpadRoutes);
+
+  const httpServer = createServer(app);
+  return httpServer;
+}

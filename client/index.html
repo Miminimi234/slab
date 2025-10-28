@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>SLAB - Solana Launchpad & Bonding Markets</title>
+  <meta name="description"
+    content="Launch perpetual markets with bonding curves on Solana. Trade, create, and discover new markets with seamless graduation from bonding to perps." />
+  <link rel="icon" type="image/png" href="/slablogo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+    rel="stylesheet">
+  <script>
+    // Comprehensive Buffer polyfill for Raydium SDK compatibility
+    if (typeof globalThis.Buffer === 'undefined') {
+      // Extended Buffer constructor that handles all Buffer methods
+      function BufferPolyfill(data, encoding) {
+        if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+          return new Uint8Array(data);
+        }
+        if (typeof data === 'string') {
+          const bytes = new Uint8Array(data.length);
+          for (let i = 0; i < data.length; i++) {
+            bytes[i] = data.charCodeAt(i);
+          }
+          return bytes;
+        }
+        if (typeof data === 'number') {
+          return new Uint8Array(data);
+        }
+        return new Uint8Array(0);
+      }
+
+      // Static methods required by Raydium SDK
+      BufferPolyfill.alloc = function (size, fill) {
+        const buf = new Uint8Array(size);
+        if (fill !== undefined) {
+          buf.fill(fill);
+        }
+        return buf;
+      };
+
+      BufferPolyfill.allocUnsafe = function (size) {
+        return new Uint8Array(size);
+      };
+
+      BufferPolyfill.from = function (data, encoding) {
+        if (typeof data === 'string') {
+          if (encoding === 'hex') {
+            const bytes = new Uint8Array(data.length / 2);
+            for (let i = 0; i < data.length; i += 2) {
+              bytes[i / 2] = parseInt(data.substr(i, 2), 16);
+            }
+            return bytes;
+          }
+          const bytes = new Uint8Array(data.length);
+          for (let i = 0; i < data.length; i++) {
+            bytes[i] = data.charCodeAt(i);
+          }
+          return bytes;
+        }
+        if (data instanceof ArrayBuffer) {
+          return new Uint8Array(data);
+        }
+        if (Array.isArray(data)) {
+          return new Uint8Array(data);
+        }
+        return new Uint8Array(data);
+      };
+
+      BufferPolyfill.isBuffer = function (obj) {
+        return obj instanceof Uint8Array;
+      };
+
+      BufferPolyfill.concat = function (list) {
+        let totalLength = 0;
+        for (const buf of list) {
+          totalLength += buf.length;
+        }
+        const result = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const buf of list) {
+          result.set(buf, offset);
+          offset += buf.length;
+        }
+        return result;
+      };
+
+      // Make Buffer available globally before any modules load
+      globalThis.Buffer = BufferPolyfill;
+      if (typeof window !== 'undefined') {
+        window.Buffer = BufferPolyfill;
+        window.global = window;
+      }
+
+      // Ensure process is available
+      if (typeof globalThis.process === 'undefined') {
+        globalThis.process = { env: {}, version: '', platform: 'browser' };
+      }
+    }
+  </script>
+</head>
+
+<body class="dark">
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

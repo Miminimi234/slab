@@ -1,0 +1,23 @@
+{
+  "name": "SLAB Devnet Token",
+  "symbol": "SLBD",
+  "description": "Test token launched from SLAB devnet flow.",
+  "image": "https://arweave.net/GQZfsY5w7HBWudPeib5GCfrSSCHgLsPShC5nA1Z3P7Tj",
+  "external_url": "https://slab.trade",
+  "seller_fee_basis_points": 0,
+  "attributes": [
+    {
+      "trait_type": "Network",
+      "value": "devnet"
+    }
+  ],
+  "properties": {
+    "files": [
+      {
+        "uri": "https://arweave.net/GQZfsY5w7HBWudPeib5GCfrSSCHgLsPShC5nA1Z3P7Tj",
+        "type": "image/png"
+      }
+    ],
+    "category": "image"
+  }
+}

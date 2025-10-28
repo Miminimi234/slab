@@ -1,0 +1,82 @@
+**REPLIT PROMPT — paste as a single instruction**
+
+Build a **frontend-only** web app called **SLAB** — a *launchpad + trading interface* inspired by the layout of Hyperliquid’s trade page, but with our own colors and branding. Use **React + TypeScript + Vite**, **TailwindCSS**, **shadcn/ui**, **Zustand** for state, **Framer Motion** for micro-animations, and **lucide-react** icons. No backend or wallet logic yet; mock all data with local JSON and in-memory stores.
+
+### Brand & Colors (NOT Hyperliquid’s)
+
+* Backgrounds: `#07111E` (page), `#0B1628` (surface), `#10233D` (elevated), hairline `#1B2D4B`.
+* Primary accents (**Orange, interaction**): `#FF8A3D`, soft `#FFB074`.
+* Secondary (**Blue, trust**): `#1FB6FF`.
+* Danger/urgency (**Red**): `#FF3B3B` (use for high-commit CTAs/warnings only).
+* Text: `#E9F2FF` / `#A4BDD9` / `#6D86A6`. Subtle same-hue focus glows.
+
+### App Structure (DEX-like shell + Launchpad)
+
+* **Left Rail (fixed 80px)**: logo “SL”, vertical nav with tooltips: *Dashboard, Launch, Discover, Markets, Creator, Docs*. Active item gets orange pill + glow.
+* **Top Bar**: search (⌘/Ctrl-K), network pill (mock), wallet connect button (stub), notifications.
+* **Main Grid**: max width 1440px, 12-col, tight gutters. Smooth, minimal, cinematic.
+
+### Pages
+
+1. **Dashboard** (default)
+
+   * Featured Market card (span 8): mini-candles (canvas placeholder), status badge `Bonding / Warmup / Perps`, graduation progress bar, KPIs (Liquidity, Holders, Age).
+   * Create Market card (span 4): short explainer + **“Launch Market”** (orange).
+   * Markets Table (full width): exchange-dense rows—symbol, status, %→graduation, 24h vol, OI (mock), quick **Trade/Buy** split button.
+
+2. **Launch Wizard** (side-by-side like an order ticket)
+
+   * Stepper (shadcn):
+     **(1) Basics**: name, symbol, image upload.
+     **(2) Bonding Curve**: type (linear/exp), start price, tax split (creator/protocol/**seed-vault**).
+     **(3) Graduation Triggers**: min liquidity, holders, age (hrs).
+     **(4) Perps Params**: tick, lot, max lev, IM/MM, price-band bps, funding_k, warmup (long-only hrs, short lev cap).
+     **(5) Fees & Splits**: taker 10 bps, maker −2 bps, creator/referrer %.
+   * Right **Live Summary**: market tile preview, status timeline (Bonding→Warmup→Perps), est. fees.
+   * Primary action = **Red “Deploy”** (urgency), secondary ghost buttons in Blue.
+
+3. **Market /[symbol]** (Hyperliquid-style layout, our colors)
+
+   * **Left 8 cols**: chart area (candles/TWAP toggle, placeholder), tabs for *Trades / Funding / Positions*.
+   * **Right 4 cols**:
+
+     * If `Bonding`: **Bonding Panel** (buy/sell curve, slippage, tax breakdown with orange accents).
+     * If `Warmup`: **Long ticket enabled**, short disabled with tooltip (“Shorts unlock after warmup & health checks”).
+     * If `Perps`: **Trade Ticket** with price, size slider, leverage, est. fees in bps, **reserve→cap TTL→commit** step indicator (mock).
+   * Middle column (optional on xl screens): **Order Book** (bids/asks lists), **Recent Trades** below.
+   * Bottom strip: **Balances / Open Orders / TWAP / History** tabs (mock data).
+
+4. **Discover**
+
+   * Filterable grid of market tiles (status color, progress ring, 24h vol, OI). Filters: Status, Volume, Time.
+
+5. **Creator /[address]**
+
+   * Earnings from fees, launched markets, referral code generator, payout stub.
+
+### Components (src/components)
+
+`LeftRailNav`, `TopBar`, `KPIStat`, `ProgressRing`, `MiniCandleCanvas`, `OrderBook`, `TradesFeed`, `BondingPanel`, `PerpsTicket`, `RiskBadges`, `WizardStepper`, `SummaryCard`, `MarketTile`, `MarketTable`, `ToastTxn`, `EmptyState`.
+
+### State & Mock Data
+
+* **Zustand stores**: `useLaunchStore`, `useMarketsStore`, `useTradeStore`.
+* Mock endpoints in `/src/mocks/` with JSON files; simple async wrappers in `/src/lib/api.ts`.
+* Status machine per market: `Bonding → Warmup (longOnly=true, shortLevCap=1x) → Perps` driven by timers + thresholds.
+
+### UX & Micro-Interactions
+
+* 150–200ms ease on hover/focus; skeletons for loading; keyboard shortcuts for ticket size (+/−), leverage (←/→), submit (Enter).
+* Clear error lines in Red; risk/legal line always visible in footer.
+
+### Accessibility & Responsiveness
+
+* WCAG AA contrast; aria labels; prefers-reduced-motion respected.
+* Mobile: left rail collapses; trading ticket becomes a bottom sheet; table becomes dense list.
+
+### What to Deliver
+
+* A running Vite + React + TS project with Tailwind and shadcn set up.
+* Fully styled **DEX-like trading page** + **Launchpad wizard** + **Dashboard/Discover/Creator** pages using the color system above.
+* All components wired to mock data with realistic interactions (no on-chain).
+* Clean file structure, thoughtful comments indicating where Router/Slab/bonding integrations will connect later.

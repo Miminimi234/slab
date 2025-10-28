@@ -1,0 +1,22 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+slab_bonding = "SLAB1111111111111111111111111111111111111"
+
+[programs.devnet]
+slab_bonding = "SLAB1111111111111111111111111111111111111"
+
+[programs.mainnet]
+slab_bonding = "SLAB1111111111111111111111111111111111111"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./test/**/*.ts"

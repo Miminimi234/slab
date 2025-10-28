@@ -1,0 +1,209 @@
+[
+  {
+    "id": "market-slab",
+    "symbol": "SLAB",
+    "name": "Slab Token",
+    "status": "warmup",
+    "createdAt": 1729468800000,
+    "creatorAddress": "8xKr...9sFd",
+    "imageUrl": "/slablogo.png",
+    "website": "https://slab.trade",
+    "twitter": "https://twitter.com/slabtrade",
+    "telegram": "https://t.me/slabtrade",
+    "description": "The native token of the SLAB trading platform",
+    "bondingConfig": {
+      "curveType": "linear",
+      "startPrice": 0.00000876,
+      "creatorTax": 2,
+      "protocolTax": 1,
+      "seedVaultTax": 2
+    },
+    "graduationTriggers": {
+      "minLiquidity": 1000000,
+      "minHolders": 1000,
+      "minAgeHours": 72
+    },
+    "perpsConfig": {
+      "tickSize": 0.00000001,
+      "lotSize": 1000,
+      "maxLeverage": 20,
+      "initialMargin": 5,
+      "maintenanceMargin": 2.5,
+      "priceBandBps": 1000,
+      "fundingK": 0.0001,
+      "warmupHours": 24,
+      "warmupShortLevCap": 1
+    },
+    "fees": {
+      "takerBps": 10,
+      "makerBps": -2,
+      "creatorFeePct": 30,
+      "referrerFeePct": 10
+    },
+    "metrics": {
+      "currentPrice": 0.00001234,
+      "priceChange24h": 23.45,
+      "volume24h": 850000,
+      "openInterest": 420000,
+      "liquidity": 1250000,
+      "holders": 3420,
+      "ageHours": 48,
+      "graduationProgress": 67,
+      "fundingRate": 0.0001
+    }
+  },
+  {
+    "id": "market-wif",
+    "symbol": "WIF",
+    "name": "Dogwifhat",
+    "status": "perps",
+    "createdAt": 1729382400000,
+    "creatorAddress": "3pLm...2xTa",
+    "imageUrl": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr/logo.png",
+    "website": "https://dogwifhat.com",
+    "twitter": "https://twitter.com/dogwifhat",
+    "description": "What's a dog with a hat? A dogwifhat!",
+    "bondingConfig": {
+      "curveType": "exponential",
+      "startPrice": 0.001,
+      "creatorTax": 2.5,
+      "protocolTax": 1,
+      "seedVaultTax": 1.5
+    },
+    "graduationTriggers": {
+      "minLiquidity": 2000000,
+      "minHolders": 2000,
+      "minAgeHours": 96
+    },
+    "perpsConfig": {
+      "tickSize": 0.0001,
+      "lotSize": 100,
+      "maxLeverage": 25,
+      "initialMargin": 4,
+      "maintenanceMargin": 2,
+      "priceBandBps": 800,
+      "fundingK": 0.00015,
+      "warmupHours": 36,
+      "warmupShortLevCap": 2
+    },
+    "fees": {
+      "takerBps": 8,
+      "makerBps": -3,
+      "creatorFeePct": 35,
+      "referrerFeePct": 15
+    },
+    "metrics": {
+      "currentPrice": 0.00234567,
+      "priceChange24h": -5.67,
+      "volume24h": 2100000,
+      "openInterest": 980000,
+      "liquidity": 2800000,
+      "holders": 5890,
+      "ageHours": 120,
+      "graduationProgress": 100,
+      "fundingRate": -0.00008
+    }
+  },
+  {
+    "id": "market-myro",
+    "symbol": "MYRO",
+    "name": "Myro",
+    "status": "bonding",
+    "createdAt": 1729555200000,
+    "creatorAddress": "9qWx...4kNp",
+    "imageUrl": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr/logo.png",
+    "telegram": "https://t.me/myrocoin",
+    "description": "The cutest dog on Solana",
+    "bondingConfig": {
+      "curveType": "linear",
+      "startPrice": 0.0005,
+      "creatorTax": 3,
+      "protocolTax": 1,
+      "seedVaultTax": 1
+    },
+    "graduationTriggers": {
+      "minLiquidity": 500000,
+      "minHolders": 500,
+      "minAgeHours": 48
+    },
+    "perpsConfig": {
+      "tickSize": 0.0001,
+      "lotSize": 50,
+      "maxLeverage": 15,
+      "initialMargin": 6.67,
+      "maintenanceMargin": 3,
+      "priceBandBps": 1200,
+      "fundingK": 0.0001,
+      "warmupHours": 24,
+      "warmupShortLevCap": 1
+    },
+    "fees": {
+      "takerBps": 12,
+      "makerBps": -2,
+      "creatorFeePct": 25,
+      "referrerFeePct": 10
+    },
+    "metrics": {
+      "currentPrice": 0.000678,
+      "priceChange24h": 45.23,
+      "volume24h": 120000,
+      "openInterest": 0,
+      "liquidity": 180000,
+      "holders": 234,
+      "ageHours": 18,
+      "graduationProgress": 34
+    }
+  },
+  {
+    "id": "market-popcat",
+    "symbol": "POPCAT",
+    "name": "Popcat",
+    "status": "bonding",
+    "createdAt": 1729641600000,
+    "creatorAddress": "5mKx...7nQp",
+    "imageUrl": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr/logo.png",
+    "website": "https://popcat.com",
+    "twitter": "https://twitter.com/popcat",
+    "telegram": "https://t.me/popcat",
+    "description": "The most memeable cat on Solana",
+    "bondingConfig": {
+      "curveType": "linear",
+      "startPrice": 0.0001,
+      "creatorTax": 2.5,
+      "protocolTax": 1,
+      "seedVaultTax": 1.5
+    },
+    "graduationTriggers": {
+      "minLiquidity": 300000,
+      "minHolders": 300,
+      "minAgeHours": 24
+    },
+    "perpsConfig": {
+      "tickSize": 0.00001,
+      "lotSize": 100,
+      "maxLeverage": 10,
+      "initialMargin": 10,
+      "maintenanceMargin": 5,
+      "priceBandBps": 1500,
+      "fundingK": 0.0002,
+      "warmupHours": 12,
+      "warmupShortLevCap": 1
+    },
+    "fees": {
+      "takerBps": 15,
+      "makerBps": -1,
+      "creatorFeePct": 20,
+      "referrerFeePct": 5
+    },
+    "metrics": {
+      "currentPrice": 0.000234,
+      "priceChange24h": 78.91,
+      "volume24h": 45000,
+      "openInterest": 0,
+      "liquidity": 67000,
+      "holders": 89,
+      "ageHours": 6,
+      "graduationProgress": 12
+    }
+  }
+]
