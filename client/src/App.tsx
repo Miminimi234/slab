@@ -1,19 +1,21 @@
-import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { BottomNav } from "@/components/layout/BottomNav";
+import { TopBar } from "@/components/layout/TopBar";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { TopBar } from "@/components/layout/TopBar";
-import { BottomNav } from "@/components/layout/BottomNav";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import Creator from "@/pages/Creator";
 import Dashboard from "@/pages/Dashboard";
-import Vaults from "@/pages/Vaults";
+import Discover from "@/pages/Discover";
+import Docs from "@/pages/Docs";
 import Launch from "@/pages/Launch";
 import Market from "@/pages/Market";
-import Discover from "@/pages/Discover";
-import Creator from "@/pages/Creator";
 import Portfolio from "@/pages/Portfolio";
+import Scope from "@/pages/Scope";
+import Vaults from "@/pages/Vaults";
 import NotFound from "@/pages/not-found";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Route, Switch } from "wouter";
+import { queryClient } from "./lib/queryClient";
 
 function Router() {
   return (
@@ -23,8 +25,10 @@ function Router() {
       <Route path="/launch" component={Launch} />
       <Route path="/market/:symbol" component={Market} />
       <Route path="/discover" component={Discover} />
+      <Route path="/docs" component={Docs} />
       <Route path="/creator" component={Creator} />
       <Route path="/portfolio" component={Portfolio} />
+      <Route path="/scope" component={Scope} />
       <Route path="/markets" component={Discover} />
       <Route path="/rewards">
         {() => (
@@ -49,7 +53,7 @@ export default function App() {
         <ThemeProvider>
           <div className="flex flex-col h-screen w-full">
             <TopBar />
-            <main className="flex-1 overflow-auto pb-16">
+            <main className="flex-1 overflow-auto pb-16 px-4 md:px-6">
               <Router />
             </main>
             <BottomNav />

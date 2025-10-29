@@ -4,7 +4,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchJupiterTokenByMint, type JupiterToken } from "@/lib/api";
@@ -12,7 +11,7 @@ import { fetchFirebaseCreatorTokens } from "@/lib/fetchFirebaseCreatorTokens";
 import type { StoredMarketToken } from "@/lib/localMarkets";
 import type { Market } from "@shared/schema";
 import { motion } from "framer-motion";
-import { Copy, DollarSign, Rocket, TrendingUp, Users } from "lucide-react";
+import { DollarSign, Rocket, TrendingUp, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 
@@ -153,12 +152,6 @@ export default function Creator() {
   const [jupiterError, setJupiterError] = useState<string | null>(null);
 
   const walletAddress = user?.wallet?.publicKey ?? null;
-  const referralCode = walletAddress ? `SLAB-${walletAddress.slice(0, 6).toUpperCase()}` : "SLAB-CREATOR";
-  const combinedReferralSource = firebaseMarkets[0];
-  const referralFeeOverride = combinedReferralSource
-    ? coerceNumber((combinedReferralSource as Record<string, unknown>).referrerFeePct)
-    : undefined;
-  const referralFeePct = referralFeeOverride ?? DEFAULT_FEES.referrerFeePct;
 
   const triggerLoginModal = () => {
     if (typeof window !== "undefined") {
@@ -357,23 +350,6 @@ export default function Creator() {
     );
   }
 
-  const copyReferralCode = async () => {
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      toast({
-        title: "Clipboard unavailable",
-        description: "Copy your referral code manually.",
-      });
-      return;
-    }
-
-    await navigator.clipboard.writeText(referralCode);
-    toast({
-      title: "Copied!",
-      description: "Referral code copied to clipboard.",
-      duration: 2000,
-    });
-  };
-
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-6 py-8">
@@ -400,15 +376,7 @@ export default function Creator() {
 
           <Card className="p-6 border-card-border bg-card">
             <h3 className="text-lg font-semibold mb-4">Referral Code</h3>
-            <div className="flex gap-3">
-              <Input value={referralCode} readOnly className="font-mono bg-background/50" data-testid="input-referral-code" />
-              <Button variant="outline" onClick={copyReferralCode} className="border-primary/30 hover:bg-primary/10" data-testid="button-copy-referral">
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              Share your code to earn {referralFeePct}% of trading fees from referred users.
-            </p>
+            <p className="text-sm text-muted-foreground">Coming soon.</p>
           </Card>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>

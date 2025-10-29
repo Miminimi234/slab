@@ -20,6 +20,19 @@ export function TokenAvatar({
   const [hasError, setHasError] = useState(false);
   const initials = (symbol || name || "?").slice(0, 2).toUpperCase();
   const dimension = `${size}px`;
+  // If the icon is a GIF, route it through the server-side proxy to avoid CORS/content-type issues.
+  const resolvedIconUrl = (() => {
+    if (!iconUrl) return undefined;
+    try {
+      const lower = iconUrl.toLowerCase();
+      if (lower.endsWith(".gif") && !iconUrl.startsWith("/api/proxy-image")) {
+        return `/api/proxy-image?url=${encodeURIComponent(iconUrl)}`;
+      }
+      return iconUrl;
+    } catch {
+      return iconUrl;
+    }
+  })();
 
   return (
     <div
@@ -27,9 +40,9 @@ export function TokenAvatar({
       style={{ width: dimension, height: dimension }}
     >
       <span>{initials}</span>
-      {iconUrl && !hasError && (
+      {resolvedIconUrl && !hasError && (
         <img
-          src={iconUrl}
+          src={resolvedIconUrl}
           alt={`${symbol || name} icon`}
           className="absolute inset-0 w-full h-full object-cover rounded-md"
           onError={() => setHasError(true)}

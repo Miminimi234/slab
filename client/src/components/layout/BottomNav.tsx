@@ -285,7 +285,10 @@ export function BottomNav() {
             <button className="p-1 text-muted-foreground hover:text-foreground transition-colors">
               <MessageCircle className="w-4 h-4" />
             </button>
-            <button className="p-1 text-muted-foreground hover:text-foreground transition-colors">
+            <button
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setLocation("/docs")}
+            >
               <FileText className="w-4 h-4" />
             </button>
             <button className="p-1 text-muted-foreground hover:text-foreground transition-colors">

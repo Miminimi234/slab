@@ -1,9 +1,12 @@
-﻿import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { TokenAvatar } from "./TokenAvatar";
+﻿import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import type { JupiterTopTrendingToken } from "@/lib/api";
-import { TrendingUp, TrendingDown, Droplet, Users, Activity } from "lucide-react";
 import clsx from "clsx";
+import { Activity, Droplet, TrendingDown, TrendingUp, Users } from "lucide-react";
+import type { KeyboardEvent } from "react";
+import { useCallback } from "react";
+import { useLocation } from "wouter";
+import { TokenAvatar } from "./TokenAvatar";
 
 interface TrendingTokenCardProps {
   token: JupiterTopTrendingToken;
@@ -32,9 +35,28 @@ const formatNumber = (value: number | undefined, options: { currency?: boolean; 
 export function TrendingTokenCard({ token, className = "" }: TrendingTokenCardProps) {
   const priceChange5m = token.stats5m?.priceChange ?? 0;
   const isPriceUp = priceChange5m >= 0;
+  const [, setLocation] = useLocation();
+
+  const navigateToMarket = useCallback(() => {
+    if (!token || !token.id) return;
+    setLocation(`/market/${encodeURIComponent(token.id)}`);
+  }, [setLocation, token]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      navigateToMarket();
+    }
+  }, [navigateToMarket]);
 
   return (
-    <Card className={clsx("p-4 bg-card border border-card-border hover-elevate", className)}>
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={navigateToMarket}
+      onKeyDown={handleKeyDown}
+      className={clsx("p-4 bg-card border border-card-border hover-elevate cursor-pointer", className)}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <TokenAvatar

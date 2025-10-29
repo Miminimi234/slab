@@ -1,6 +1,7 @@
 import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { gmgnService } from "./gmgnService";
 import { jupiterService } from "./jupiterService";
 import { jupiterTopTrendingService } from "./jupiterTopTrendingService";
 import launchpadRoutes from "./launchpadRoutes";
@@ -19,6 +20,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await jupiterService.start();
   await jupiterTopTrendingService.start();
   await priceService.start();
+  gmgnService.start();
 
   // Wallet connection endpoint - creates user session with wallet info
   app.post("/api/auth/wallet-connect", async (req: any, res) => {
@@ -496,6 +498,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(jupiterService.getSnapshot());
   });
 
+  // Image proxy endpoint to handle CORS/content-type issues for GIFs and other remote images
+  app.get("/api/proxy-image", async (req, res) => {
+    try {
+      const imageUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+      if (!imageUrl) {
+        return res.status(400).json({ error: "URL parameter is required" });
+      }
+
+      // Basic URL validation
+      try {
+        new URL(imageUrl);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL format" });
+      }
+
+      const response = await fetch(imageUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; SLAB/1.0)" },
+        redirect: "follow",
+      });
+
+      if (!response.ok) {
+        return res.status(502).json({ error: "Failed to fetch image" });
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      let contentType = response.headers.get("content-type") || "image/jpeg";
+      const urlLower = imageUrl.toLowerCase();
+      if (!contentType || contentType === "application/octet-stream") {
+        if (urlLower.endsWith(".gif")) contentType = "image/gif";
+        else if (urlLower.endsWith(".png")) contentType = "image/png";
+        else if (urlLower.endsWith(".webp")) contentType = "image/webp";
+        else if (urlLower.endsWith(".svg")) contentType = "image/svg+xml";
+      }
+
+      res.set({
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400",
+        "Access-Control-Allow-Origin": "*",
+      });
+
+      res.send(buffer);
+    } catch (err) {
+      console.error("/api/proxy-image error:", err);
+      res.status(500).json({ error: "Failed to proxy image" });
+    }
+  });
+
   // Jupiter recent tokens stream (Server-Sent Events)
   app.get("/api/jupiter/recent/stream", (req, res) => {
     jupiterService.handleStream(req, res);
@@ -531,6 +582,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Jupiter top trending tokens stream (Server-Sent Events)
   app.get("/api/jupiter/top-trending/stream", (req, res) => {
     jupiterTopTrendingService.handleStream(req, res);
+  });
+
+  // ========== GMGN TOKEN SERVICE ENDPOINTS ==========
+
+  app.get("/api/gmgn/tokens", (_req, res) => {
+    res.json(gmgnService.getSnapshot());
+  });
+
+  app.get("/api/gmgn/tokens/stream", (req, res) => {
+    gmgnService.handleStream(req, res);
+  });
+
+  app.post("/api/gmgn/polling/start", (_req, res) => {
+    gmgnService.start();
+    const status = gmgnService.getStatus();
+    res.json({ success: true, message: "GMGN polling started", ...status });
+  });
+
+  app.post("/api/gmgn/polling/stop", (_req, res) => {
+    gmgnService.stop();
+    const status = gmgnService.getStatus();
+    res.json({ success: true, message: "GMGN polling stopped", ...status });
+  });
+
+  app.get("/api/gmgn/polling/status", (_req, res) => {
+    res.json(gmgnService.getStatus());
+  });
+
+  app.post("/api/gmgn/cache/clear", (_req, res) => {
+    gmgnService.clear();
+    const status = gmgnService.getStatus();
+    res.json({ success: true, message: "GMGN cache cleared", ...status });
+  });
+
+  app.get("/api/gmgn/search", async (req, res) => {
+    try {
+      const query = typeof req.query.q === "string" ? req.query.q : req.query.query;
+      const chain = typeof req.query.chain === "string" ? req.query.chain : "bsc";
+
+      if (!query || typeof query !== "string" || !query.trim()) {
+        return res.status(400).json({ success: false, error: "Query parameter 'q' is required" });
+      }
+
+      const results = await gmgnService.search(query, chain);
+      res.json({ success: true, data: results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("[GMGN] Search error:", message);
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get("/api/gmgn/test", async (_req, res) => {
+    try {
+      const json = await gmgnService.testFetch();
+      res.json(json);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Fetch token trades for a given mint via GMGN
+  app.get("/api/gmgn/trades/:mint", async (req, res) => {
+    try {
+      const { mint } = req.params as { mint: string };
+      const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+      const maker = typeof req.query.maker === "string" ? req.query.maker : undefined;
+
+      if (!mint || typeof mint !== "string") {
+        return res.status(400).json({ success: false, error: "Mint parameter is required" });
+      }
+
+      const json = await gmgnService.getTokenTrades(mint, { limit, maker });
+
+      res.json({ success: true, data: json });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("[GMGN] token trades error:", message);
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Fetch token holders for a given mint via GMGN
+  app.get("/api/gmgn/holders/:mint", async (req, res) => {
+    try {
+      const { mint } = req.params as { mint: string };
+      const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+      const orderby = typeof req.query.orderby === "string" ? req.query.orderby : undefined;
+      const direction = typeof req.query.direction === "string" ? req.query.direction : undefined;
+      const cost = typeof req.query.cost === "string" ? parseInt(req.query.cost, 10) : undefined;
+
+      if (!mint || typeof mint !== "string") {
+        return res.status(400).json({ success: false, error: "Mint parameter is required" });
+      }
+
+      const json = await gmgnService.getTokenHolders(mint, { limit, orderby, direction, cost });
+
+      res.json({ success: true, data: json });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("[GMGN] token holders error:", message);
+      res.status(500).json({ success: false, error: message });
+    }
   });
 
   // ========== PRICE SERVICE ENDPOINTS ==========

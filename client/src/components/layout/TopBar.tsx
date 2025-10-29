@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Compass, Copy, Download, Gift, Home, Key, LogOut, Menu, RefreshCw, Rocket, Search, Shield, Upload, User, Wallet } from "lucide-react";
+import { Compass, Copy, Download, Gift, Home, Key, LogOut, Menu, RefreshCw, Rocket, Search, TrendingUp, Upload, User, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -36,7 +36,7 @@ function useDebounce<T>(value: T, delay = 200) {
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/" },
-  { icon: Shield, label: "Vaults", path: "/vaults" },
+  { icon: TrendingUp, label: "Scope", path: "/scope" },
   { icon: Compass, label: "Discover", path: "/discover" },
   { icon: Wallet, label: "Portfolio", path: "/portfolio" },
   { icon: User, label: "Creator", path: "/creator" },

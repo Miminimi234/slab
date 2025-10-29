@@ -14,6 +14,7 @@ import {
     Connection,
     Keypair,
     PublicKey,
+    SystemProgram,
     Transaction,
     TransactionMessage,
     VersionedTransaction,
@@ -357,7 +358,7 @@ export class RaydiumClientSDK {
                 txVersion: TxVersion.V0, // Use versioned transactions for larger instruction capacity
                 slippage: new BN(500), // 5% slippage
                 buyAmount: buyAmountBN,
-                createOnly: true,
+                createOnly: params.createOnly,
                 extraSigners: [mintKeypair],
             };
 
@@ -383,8 +384,43 @@ export class RaydiumClientSDK {
 
             const builderInstructions = (launchpadBuild as any)?.builder?.allInstructions ?? [];
             console.log("[DEBUG] Instruction count:", builderInstructions.length);
+            let foundSystemTransfer = false;
             builderInstructions.forEach((instruction: any, idx: number) => {
                 try {
+                    const progIdStr = typeof instruction?.programId?.toBase58 === 'function'
+                        ? instruction.programId.toBase58()
+                        : typeof instruction?.programId?.toString === 'function'
+                            ? instruction.programId.toString()
+                            : String(instruction?.programId);
+                    const accountCount = Array.isArray(instruction?.keys) ? instruction.keys.length : 0;
+                    const dataHex = instruction?.data ? Buffer.from(instruction.data).subarray(0, 64).toString("hex") : "";
+
+                    console.log(`[DEBUG] Instruction ${idx} programId: ${progIdStr} | accounts: ${accountCount} | data[0..64]: ${dataHex}`);
+
+                    if (instruction?.keys && Array.isArray(instruction.keys)) {
+                        const accountsPreview = instruction.keys.slice(0, 8).map((meta: any, metaIdx: number) => {
+                            const pubkey = typeof meta?.pubkey?.toBase58 === 'function'
+                                ? meta.pubkey.toBase58()
+                                : typeof meta?.pubkey?.toString === 'function'
+                                    ? meta.pubkey.toString()
+                                    : `unknown-${metaIdx}`;
+                            const flags = `${meta?.isSigner ? "S" : "-"}${meta?.isWritable ? "W" : "-"}`;
+                            return `${metaIdx}:${flags}:${pubkey}`;
+                        }).join(", ");
+                        console.log(`[DEBUG] Instruction ${idx} accounts (preview): ${accountsPreview}`);
+                    }
+
+                    // Detect system transfer instruction
+                    try {
+                        const progPub = instruction?.programId instanceof PublicKey ? instruction.programId : new PublicKey(instruction.programId);
+                        if (progPub.equals(SystemProgram.programId)) {
+                            console.log(`[DEBUG] Instruction ${idx} appears to be a SystemProgram instruction (possible SOL transfer)`);
+                            foundSystemTransfer = true;
+                        }
+                    } catch (e) {
+                        // ignore parse errors
+                    }
+
                     const tx = new Transaction();
                     tx.add(instruction);
                     const blockhash = Keypair.generate().publicKey.toBase58();
@@ -398,6 +434,8 @@ export class RaydiumClientSDK {
                     console.warn(`[WARN] Failed to measure instruction ${idx} size:`, instructionError);
                 }
             });
+
+            console.log('[DEBUG] Found SystemProgram transfer instruction in builder:', foundSystemTransfer);
 
             console.log("[DEBUG] Launchpad transaction built, executing...");
 

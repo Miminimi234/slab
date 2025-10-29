@@ -341,6 +341,81 @@ export async function fetchJupiterTokenByMint(mintAddress: string): Promise<Jupi
   }
 }
 
+export async function fetchGmgnTokenTrades(mintAddress: string, limit = 50): Promise<Trade[]> {
+  try {
+    const url = `/api/gmgn/trades/${encodeURIComponent(mintAddress)}?limit=${encodeURIComponent(String(limit))}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch GMGN trades: ${response.status}`);
+    }
+    const json = await response.json();
+    const data = json?.data?.data ?? json?.data ?? json;
+    const history = Array.isArray(data?.history) ? data.history : [];
+
+    return history.map((item: any, i: number) => {
+      const timestamp = typeof item.timestamp === "number" ? item.timestamp * 1000 : Date.now();
+      const price = Number(item.price_usd ?? item.price ?? 0) || 0;
+      const baseAmount = Number(item.base_amount ?? item.amount ?? 0) || 0;
+      const quoteAmount = Number(item.quote_amount ?? 0) || 0;
+      const side = item.event === "buy" ? "buy" : "sell";
+
+      return {
+        id: item.id ?? item.tx_hash ?? `${mintAddress}-${i}-${timestamp}`,
+        marketId: mintAddress,
+        symbol: mintAddress,
+        timestamp,
+        price,
+        size: baseAmount,
+        side,
+        // Keep original GMGN payload for richer rendering in the UI
+        gmgnRaw: item,
+        gmgn: {
+          base_amount: String(baseAmount),
+          quote_amount: String(quoteAmount),
+          price_usd: String(price),
+          maker: item.maker ?? "",
+          tx_hash: item.tx_hash ?? "",
+        },
+      } as unknown as Trade;
+    });
+  } catch (error) {
+    console.error("fetchGmgnTokenTrades error:", error);
+    return [];
+  }
+}
+
+export async function fetchGmgnTokenHolders(
+  mintAddress: string,
+  limit = 50,
+  cursor?: string
+): Promise<{ holders: any[]; next?: string | null }> {
+  try {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (cursor) params.set("cursor", cursor);
+    const url = `/api/gmgn/holders/${encodeURIComponent(mintAddress)}?${params.toString()}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch GMGN holders: ${response.status}`);
+    }
+    const json = await response.json();
+    const data = json?.data?.data ?? json?.data ?? json;
+
+    // GMGN may return holders under different keys; try common ones
+    let holders: any[] = [];
+    if (Array.isArray(data?.holders)) holders = data.holders;
+    else if (Array.isArray(data?.items)) holders = data.items;
+    else if (Array.isArray(data?.list)) holders = data.list;
+    else if (Array.isArray(data)) holders = data;
+
+    const next = data?.next ?? null;
+    return { holders, next };
+  } catch (error) {
+    console.error("fetchGmgnTokenHolders error:", error);
+    return { holders: [], next: null };
+  }
+}
+
 // Raydium LaunchLab API Functions
 
 export interface LaunchpadFormData {

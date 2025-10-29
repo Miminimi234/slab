@@ -10,6 +10,9 @@ export interface TokenRegistryRecord {
     description?: string;
     deployer: string;
     createdAt?: string;
+    website?: string;
+    twitter?: string;
+    telegram?: string;
 }
 
 const sanitizeRecord = (record: TokenRegistryRecord) => {
@@ -22,6 +25,9 @@ const sanitizeRecord = (record: TokenRegistryRecord) => {
         description: trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : null,
         deployer: record.deployer.trim(),
         createdAt: record.createdAt ?? new Date().toISOString(),
+        website: record.website?.trim() || null,
+        twitter: record.twitter?.trim() || null,
+        telegram: record.telegram?.trim() || null,
     };
 };
 

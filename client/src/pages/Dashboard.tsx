@@ -339,6 +339,7 @@ export default function Dashboard() {
             <GMGNWidget
               mintAddress={(selectedToken || defaultToken)?.id || ""}
               height={360}
+              interval="1S"
               className="mb-6"
             />
 

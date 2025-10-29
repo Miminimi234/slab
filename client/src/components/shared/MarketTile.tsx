@@ -1,10 +1,10 @@
-import { Market } from "@shared/schema";
 import { Card } from "@/components/ui/card";
-import { StatusBadge } from "./StatusBadge";
-import { ProgressRing } from "./ProgressRing";
-import { TrendingUp, TrendingDown, Users, Droplet, Globe, MessageCircle, Twitter } from "lucide-react";
+import { Market } from "@shared/schema";
 import { motion } from "framer-motion";
+import { Droplet, Globe, MessageCircle, TrendingDown, TrendingUp, Twitter, Users } from "lucide-react";
 import { Link } from "wouter";
+import { ProgressRing } from "./ProgressRing";
+import { StatusBadge } from "./StatusBadge";
 
 interface MarketTileProps {
   market: Market;
@@ -40,10 +40,10 @@ export function MarketTile({ market, className = "" }: MarketTileProps) {
             <div className="flex items-center gap-3">
               <div className="relative group">
                 {market.imageUrl ? (
-                  <img 
-                    src={market.imageUrl} 
-                    alt={market.symbol} 
-                    className="w-10 h-10 rounded-md transition-transform duration-300 group-hover:scale-110 group-hover:shadow-lg" 
+                  <img
+                    src={market.imageUrl}
+                    alt={market.symbol}
+                    className="w-10 h-10 rounded-md transition-transform duration-300 group-hover:scale-110 group-hover:shadow-lg"
                   />
                 ) : (
                   <div className="w-10 h-10 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary transition-transform duration-300 group-hover:scale-110">
@@ -57,9 +57,9 @@ export function MarketTile({ market, className = "" }: MarketTileProps) {
                 {/* Social media icons */}
                 <div className="flex items-center gap-1 mt-1">
                   {market.website ? (
-                    <a 
-                      href={market.website} 
-                      target="_blank" 
+                    <a
+                      href={market.website}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-primary transition-colors p-1 rounded hover:bg-primary/10 border border-border hover:border-primary/30"
                       onClick={(e) => e.stopPropagation()}
@@ -73,9 +73,9 @@ export function MarketTile({ market, className = "" }: MarketTileProps) {
                     </div>
                   )}
                   {market.twitter ? (
-                    <a 
-                      href={market.twitter} 
-                      target="_blank" 
+                    <a
+                      href={market.twitter}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-blue-400 transition-colors p-1 rounded hover:bg-blue-400/10 border border-border hover:border-blue-400/30"
                       onClick={(e) => e.stopPropagation()}
@@ -89,9 +89,9 @@ export function MarketTile({ market, className = "" }: MarketTileProps) {
                     </div>
                   )}
                   {market.telegram ? (
-                    <a 
-                      href={market.telegram} 
-                      target="_blank" 
+                    <a
+                      href={market.telegram}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-blue-500 transition-colors p-1 rounded hover:bg-blue-500/10 border border-border hover:border-blue-500/30"
                       onClick={(e) => e.stopPropagation()}
@@ -107,7 +107,7 @@ export function MarketTile({ market, className = "" }: MarketTileProps) {
                 </div>
               </div>
             </div>
-            <StatusBadge status={market.status} />
+            <StatusBadge status={market.status} graduationProgress={market.metrics?.graduationProgress} />
           </div>
 
           <div className="flex items-center justify-between mb-3">

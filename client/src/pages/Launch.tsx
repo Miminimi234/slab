@@ -1,8 +1,11 @@
 ﻿import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,7 +16,17 @@ import { StoredMarketToken, storeMarketToken } from "@/lib/localMarkets";
 import { LaunchpadCreateParams, raydiumClient } from "@/lib/raydiumClient";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, ChevronLeft, ChevronRight, Image as ImageIcon, Loader2, Rocket, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon,
+  Loader2,
+  Rocket,
+  ShieldAlert,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -95,6 +108,18 @@ type LaunchFormState = {
 
 type LaunchFormSection = keyof Omit<LaunchFormState, "step">;
 
+type LevFormState = {
+  tokenMint: string;
+  capitalAmount: string;
+  lendRatio: string;
+  durationValue: string;
+  durationUnit: "days" | "months";
+  neverExpires: boolean;
+  agreeTerms: boolean;
+};
+
+const DEFAULT_POOL_TYPE = "Meteora DLMM (Dynamic Liquidity Market Maker)";
+
 export default function Launch() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -123,8 +148,33 @@ export default function Launch() {
       creatorSolAmount: 1 // Default to 1 SOL - users can choose any amount
     }
   });
+  const [launchMode, setLaunchMode] = useState<"lev" | "token">("token");
+  const [levForm, setLevForm] = useState<LevFormState>({
+    tokenMint: "",
+    capitalAmount: "",
+    lendRatio: "",
+    durationValue: "",
+    durationUnit: "days",
+    neverExpires: false,
+    agreeTerms: false,
+  });
+  const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
+  const [hasSubmittedAccessRequest, setHasSubmittedAccessRequest] = useState(false);
   const [minFundraisingRequirement, setMinFundraisingRequirement] = useState<{ lamports: number; sol: number } | null>(null);
   const hasPromptedAuthRef = useRef(false);
+
+  function updateLevForm<K extends keyof LevFormState>(key: K, value: LevFormState[K]) {
+    setLevForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const handleLevLaunchClick = () => {
+    setHasSubmittedAccessRequest(false);
+    setIsAccessModalOpen(true);
+  };
+
+  const handleApplyForAccess = () => {
+    setHasSubmittedAccessRequest(true);
+  };
 
   const triggerLoginModal = () => {
     if (typeof window !== "undefined") {
@@ -615,14 +665,24 @@ export default function Launch() {
           uri: metadataUri,
         },
         buyAmount: userBuyAmountLamports.toString(),
-        createOnly: creatorSolAmount === 0,
+        createOnly: false,
         cluster: 'devnet' as 'devnet' | 'mainnet',
       };
 
       const sdkResult = await raydiumClient.createLaunchpad(launchpadParams, cleanWallet);
 
       if (!sdkResult.success) {
-        throw new Error('Failed to create launchpad with SDK');
+        let errorMsg = 'Transaction was canceled or rejected.';
+        if (sdkResult.error && typeof sdkResult.error === 'string') {
+          if (sdkResult.error.toLowerCase().includes('user reject')) {
+            errorMsg = 'Transaction was canceled by the user.';
+          } else if (sdkResult.error.toLowerCase().includes('timeout')) {
+            errorMsg = 'Transaction timed out. Please try again.';
+          } else {
+            errorMsg = sdkResult.error;
+          }
+        }
+        throw new Error(errorMsg);
       }
 
       console.log('Launchpad created successfully with SDK:', sdkResult);
@@ -683,6 +743,9 @@ export default function Launch() {
           description: formData.basics.description,
           deployer: creatorAddress,
           createdAt: new Date().toISOString(),
+          website: formData.social.website || undefined,
+          twitter: formData.social.twitter || undefined,
+          telegram: formData.social.telegram || undefined,
         });
         console.info(`[Firebase] Token registry write result: ${persisted ? "success" : "skipped"}`);
       } catch (firebaseError) {
@@ -718,465 +781,740 @@ export default function Launch() {
           Launch Slab
         </h1>
         <p className="text-muted-foreground">
-          Create a token and launch it on Raydium LaunchLab with a dynamic bonding curve
+          {launchMode === "lev"
+            ? "Launch slabs for any token on the Solana chain"
+            : "Launch SLAB native tokens to Raydium LaunchLab"}
         </p>
+        <div className="flex flex-wrap gap-3 mt-4">
+          <Button
+            type="button"
+            onClick={() => setLaunchMode("lev")}
+            variant={launchMode === "lev" ? "default" : "outline"}
+            className="uppercase tracking-[0.2em] text-xs px-4 py-2"
+            aria-pressed={launchMode === "lev"}
+          >
+            Deploy Slab Lev
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setLaunchMode("token")}
+            variant={launchMode === "token" ? "default" : "outline"}
+            className="uppercase tracking-[0.2em] text-xs px-4 py-2"
+            aria-pressed={launchMode === "token"}
+          >
+            Deploy Slab Token
+          </Button>
+        </div>
       </motion.div>
 
-      {/* Stepper */}
-      <Card className="p-6 border-card-border bg-card">
-        <div className="flex items-center justify-between">
-          {steps.map((step, index) => (
-            <div key={step.number} className="flex items-center flex-1">
-              <div className="flex flex-col items-center flex-1">
-                <motion.div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-all ${currentStep === step.number
-                    ? "bg-primary border-primary text-primary-foreground glow-mint"
-                    : currentStep > step.number
-                      ? "bg-success border-success text-black"
-                      : "bg-muted border-border text-muted-foreground"
-                    }`}
-                  whileHover={{ scale: 1.05 }}
-                  data-testid={`step-${step.number}`}
-                >
-                  {currentStep > step.number ? <Check className="w-5 h-5" /> : step.number}
-                </motion.div>
-                <div className="text-center mt-2 hidden sm:block">
-                  <div className="text-xs font-semibold">{step.title}</div>
-                  <div className="text-xs text-muted-foreground">{step.subtitle}</div>
+      {launchMode === "lev" ? (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <Card className="p-6 border-card-border bg-card space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold mb-2 text-foreground">Slab Lev Deployment</h2>
+                <p className="text-sm text-muted-foreground">
+                  Configure leveraged SLAB parameters before requesting a Meteora pool.
+                </p>
+              </div>
+
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="lev-token-mint">Token Mint Address</Label>
+                  <Input
+                    id="lev-token-mint"
+                    placeholder="Enter token mint..."
+                    value={levForm.tokenMint}
+                    onChange={(event) => updateLevForm("tokenMint", event.target.value)}
+                  />
                 </div>
-              </div>
-              {index < steps.length - 1 && (
-                <div className={`h-0.5 flex-1 transition-all ${currentStep > step.number ? "bg-success" : "bg-border"}`} />
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
 
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Form - 2 cols */}
-        <div className="lg:col-span-2">
-          <Card className="p-6 border-card-border bg-card min-h-[500px]">
-            <AnimatePresence mode="wait">
-              {/* Step 1: Basics */}
-              {currentStep === 1 && (
-                <motion.div
-                  key="step1"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-6"
-                >
-                  <div>
-                    <h2 className="text-2xl font-bold mb-2 text-foreground">Slab Basics</h2>
-                    <p className="text-sm text-muted-foreground">Set up your slab identity</p>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lev-pool-type">Pool Type</Label>
+                  <Input
+                    id="lev-pool-type"
+                    value={DEFAULT_POOL_TYPE}
+                    readOnly
+                    disabled
+                    className="text-muted-foreground"
+                  />
+                </div>
 
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="name">Slab Name</Label>
-                      <Input
-                        id="name"
-                        placeholder="e.g., Bonk Inu"
-                        value={formData.basics.name}
-                        onChange={(e) => updateFormData("basics", { name: e.target.value })}
-                        className="mt-2"
-                        data-testid="input-name"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="symbol">Symbol</Label>
-                      <Input
-                        id="symbol"
-                        placeholder="e.g., BONK"
-                        value={formData.basics.symbol}
-                        onChange={(e) => updateFormData("basics", { symbol: e.target.value.toUpperCase() })}
-                        className="mt-2"
-                        maxLength={10}
-                        data-testid="input-symbol"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="description">Description</Label>
-                      <textarea
-                        id="description"
-                        placeholder="Describe your slab..."
-                        value={formData.basics.description}
-                        onChange={(e) => updateFormData("basics", { description: e.target.value })}
-                        className="mt-2 w-full px-3 py-2 border border-input bg-background rounded-md text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-                        rows={3}
-                        data-testid="input-description"
-                      />
-                    </div>
-
-                    <div>
-                      <Label>Slab Image (optional)</Label>
-                      <div className="mt-2">
-                        {imagePreview ? (
-                          <div className="relative">
-                            <div className="aspect-square w-full max-w-48 rounded-md border border-border overflow-hidden bg-muted/10">
-                              <img
-                                src={imagePreview}
-                                alt="Slab preview"
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="flex gap-2 mt-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={removeImage}
-                                className="px-3"
-                              >
-                                <X className="w-4 h-4 mr-2" />
-                                Remove
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-2">
-                              Image will be hosted automatically when generating metadata.
-                            </p>
-                          </div>
-                        ) : (
-                          <div
-                            className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors ${dragActive
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50"
-                              }`}
-                            onDragEnter={handleDrag}
-                            onDragLeave={handleDrag}
-                            onDragOver={handleDrag}
-                            onDrop={handleDrop}
-                          >
-                            <input
-                              ref={fileInputRef}
-                              type="file"
-                              accept="image/*"
-                              onChange={handleFileInput}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            />
-                            <div className="space-y-2">
-                              <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground" />
-                              <div className="text-sm">
-                                <span className="text-primary font-medium">Click to upload</span> or drag and drop
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                PNG, JPG, GIF up to 5MB
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 2: Social Media */}
-              {currentStep === 2 && (
-                <motion.div
-                  key="step2"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-6"
-                >
-                  <div>
-                    <h2 className="text-2xl font-bold mb-2 text-foreground">Social Links</h2>
-                    <p className="text-sm text-muted-foreground">Add your social media links (optional)</p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="website">Website</Label>
-                      <Input
-                        id="website"
-                        type="url"
-                        placeholder="https://yourwebsite.com"
-                        value={formData.social.website}
-                        onChange={(e) => updateFormData("social", { website: e.target.value })}
-                        className="mt-2"
-                        data-testid="input-website"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="twitter">Twitter</Label>
-                      <Input
-                        id="twitter"
-                        type="url"
-                        placeholder="https://twitter.com/yourusername"
-                        value={formData.social.twitter}
-                        onChange={(e) => updateFormData("social", { twitter: e.target.value })}
-                        className="mt-2"
-                        data-testid="input-twitter"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="telegram">Telegram</Label>
-                      <Input
-                        id="telegram"
-                        type="url"
-                        placeholder="https://t.me/yourgroup"
-                        value={formData.social.telegram}
-                        onChange={(e) => updateFormData("social", { telegram: e.target.value })}
-                        className="mt-2"
-                        data-testid="input-telegram"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 3: Deploy */}
-              {currentStep === 3 && (
-                <motion.div
-                  key="step3"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                  className="space-y-6"
-                >
-                  <div>
-                    <h2 className="text-2xl font-bold mb-2 text-foreground">Deploy Your Slab</h2>
-                    <p className="text-sm text-muted-foreground">Configure deployment settings and launch your bonding curve market</p>
-                  </div>
-
-                  {/* Metadata generation is now automatic - no UI needed */}
-
-                  <div>
-                    <Label htmlFor="creator-sol">Initial Buy Amount (Optional)</Label>
-                    <div className="mt-2">
-                      <div className="relative">
-                        <Input
-                          id="creator-sol"
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          value={formData.deployment.creatorSolAmount}
-                          onChange={(e) => updateFormData("deployment", { creatorSolAmount: parseFloat(e.target.value) })}
-                          className="pr-16"
-                          data-testid="input-creator-sol"
-                        />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                          SOL
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Optional initial purchase amount. You can launch with 0 SOL and let others buy first. The bonding curve graduates at 85 SOL total community purchases.
-                      </p>
-                      {false && (
-                        <p className="text-xs text-destructive mt-1">
-                          Increase the amount to meet the minimum LaunchLab requirement.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-3">
-                    <h3 className="font-semibold text-lg text-foreground">Deployment Summary</h3>
-
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Slab Name</span>
-                        <span className="font-medium text-foreground">{formData.basics.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Symbol</span>
-                        <span className="font-medium text-foreground">{formData.basics.symbol}</span>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">Metadata URI</span>
-                        <span className="font-medium text-foreground truncate max-w-[60%] text-right">
-                          {formData.basics.metadataUri || "Not provided"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Initial SOL</span>
-                        <span className="font-medium text-foreground">{formData.deployment.creatorSolAmount} SOL</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Graduation Threshold</span>
-                        <span className="font-medium text-success">80 SOL</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Bonding Curve</span>
-                        <span className="font-medium text-foreground">Dynamic Bonding Curve</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Deployment Cost</span>
-                        <span className="font-medium text-success">~0.01 SOL</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-muted/10 border border-border rounded-md">
-                    <div className="flex items-start gap-3">
-                      <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0"></div>
-                      <div className="space-y-2">
-                        <h4 className="font-semibold text-foreground">Ready to Launch</h4>
-                        <p className="text-sm text-muted-foreground">
-                          Your token will be created and launched using Raydium LaunchLab's dynamic bonding curve.
-                          Graduation happens automatically at 80 SOL total liquidity.
-                        </p>
-                        <div className="text-xs text-muted-foreground">
-                          • Protocol fees may apply during bonding and after graduation. See platform docs for details.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-12"
-                    size="lg"
-                    onClick={deployMarket}
-                    disabled={isDeploying || isGeneratingMetadata}
-                    data-testid="button-deploy"
-                  >
-                    {isDeploying ? (
-                      <>
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Creating Slab...
-                      </>
-                    ) : (
-                      <>
-                        <Rocket className="w-5 h-5 mr-2" />
-                        Launch Slab
-                      </>
-                    )}
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
-                disabled={currentStep === 1}
-                data-testid="button-prev-step"
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                Previous
-              </Button>
-              <div className="text-sm text-muted-foreground">
-                Step {currentStep} of {steps.length}
-              </div>
-              <Button
-                onClick={() => setCurrentStep(prev => Math.min(3, prev + 1))}
-                disabled={currentStep === 3 || !canProceed()}
-                data-testid="button-next-step"
-              >
-                Next
-                <ChevronRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-        </div>
-
-        {/* Live Summary - 1 col */}
-        <div>
-          <Card className="p-6 border-card-border bg-card sticky top-24">
-            <h3 className="text-lg font-semibold mb-4 text-foreground">Live Preview</h3>
-
-            {formData.basics.symbol ? (
-              <div className="space-y-4">
-                <div className="aspect-square w-full rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center overflow-hidden">
-                  {imagePreview ? (
-                    <img
-                      src={imagePreview}
-                      alt="Slab preview"
-                      className="w-full h-full object-cover"
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="lev-capital">Capital Amount (SOL)</Label>
+                    <Input
+                      id="lev-capital"
+                      type="number"
+                      min="0"
+                      placeholder="e.g., 50"
+                      value={levForm.capitalAmount}
+                      onChange={(event) => updateLevForm("capitalAmount", event.target.value)}
                     />
-                  ) : (
-                    <span className="text-4xl font-bold text-primary">{formData.basics.symbol.slice(0, 2)}</span>
-                  )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lev-lend-ratio">Lend Ratio (% lendable)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="lev-lend-ratio"
+                        type="number"
+                        min="0"
+                        max="100"
+                        placeholder="e.g., 60"
+                        value={levForm.lendRatio}
+                        onChange={(event) => updateLevForm("lendRatio", event.target.value)}
+                      />
+                      <span className="text-xs text-muted-foreground">%</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <h4 className="font-bold text-lg text-foreground">{formData.basics.symbol}</h4>
-                  <p className="text-sm text-muted-foreground">{formData.basics.name || "Your slab name"}</p>
-                  {formData.basics.description && (
-                    <p className="text-xs text-muted-foreground mt-1">{formData.basics.description}</p>
-                  )}
+                <div className="space-y-2">
+                  <Label htmlFor="lev-duration">Slab Lifecycle</Label>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Input
+                      id="lev-duration"
+                      type="number"
+                      min="1"
+                      placeholder="Duration"
+                      value={levForm.durationValue}
+                      onChange={(event) => updateLevForm("durationValue", event.target.value)}
+                      disabled={levForm.neverExpires}
+                      className="sm:w-32"
+                    />
+                    <Select
+                      value={levForm.durationUnit}
+                      onValueChange={(value) => updateLevForm("durationUnit", value as LevFormState["durationUnit"])}
+                      disabled={levForm.neverExpires}
+                    >
+                      <SelectTrigger className="w-32 border border-border bg-card">
+                        <SelectValue placeholder="Units" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="days">Days</SelectItem>
+                        <SelectItem value="months">Months</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <Checkbox
+                      id="lev-never-expire"
+                      checked={levForm.neverExpires}
+                      onCheckedChange={(checked) => updateLevForm("neverExpires", checked === true)}
+                    />
+                    <Label htmlFor="lev-never-expire" className="text-sm text-muted-foreground">
+                      Never expire
+                    </Label>
+                  </div>
                 </div>
 
                 <Separator />
 
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <Badge variant="outline" className="mb-2">Bonding Curve</Badge>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="flex-1 h-1 bg-warning rounded" />
-                      <span className="text-warning">Bonding Phase</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs mt-1">
-                      <div className="flex-1 h-1 bg-success rounded" />
-                      <span className="text-success">Graduation at 80 SOL</span>
-                    </div>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="lev-terms"
+                      checked={levForm.agreeTerms}
+                      onCheckedChange={(checked) => updateLevForm("agreeTerms", checked === true)}
+                    />
+                    <Label htmlFor="lev-terms" className="text-sm text-muted-foreground">
+                      I agree to the terms of creating a Slab.
+                    </Label>
                   </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Initial SOL</span>
-                      <span className="font-mono font-medium text-foreground">{formData.deployment.creatorSolAmount} SOL</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Graduation</span>
-                      <span className="font-mono font-medium text-success">80 SOL</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tax Rate</span>
-                      <span className="font-mono font-medium text-foreground">4% â†’ 1%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Deployment</span>
-                      <span className="font-mono font-medium text-success">~0.01 SOL</span>
-                    </div>
-                  </div>
-
-                  {(formData.social.website || formData.social.twitter || formData.social.telegram) && (
-                    <>
-                      <Separator />
-                      <div className="space-y-2">
-                        <div className="text-xs font-medium text-muted-foreground">Social Links</div>
-                        {formData.social.website && (
-                          <div className="text-xs text-primary truncate">ðŸŒ {formData.social.website}</div>
-                        )}
-                        {formData.social.twitter && (
-                          <div className="text-xs text-primary truncate">ðŸ¦ {formData.social.twitter}</div>
-                        )}
-                        {formData.social.telegram && (
-                          <div className="text-xs text-primary truncate">ðŸ“± {formData.social.telegram}</div>
-                        )}
-                      </div>
-                    </>
-                  )}
+                  <Button
+                    type="button"
+                    onClick={handleLevLaunchClick}
+                    className="uppercase tracking-[0.25em] text-xs w-full"
+                  >
+                    Launch Slab
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    First-time slab launchers require manual approval. Submit an application to begin the review process.
+                  </p>
                 </div>
               </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-sm text-muted-foreground">
-                  Fill in slab details to see preview
-                </p>
+            </Card>
+
+            <Card className="p-6 border-card-border bg-card space-y-4">
+              <h3 className="text-lg font-semibold text-foreground">What is Slab Lev?</h3>
+              <p className="text-sm text-muted-foreground">
+                Slab Lev uses Meteora&apos;s dynamic liquidity pools to unlock leverage against your SLAB positions.
+                Configure lifecycle and capital parameters here, then submit once the feature is live.
+              </p>
+              <Separator />
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>Until activation, everything on this screen is read-only. We&apos;ll notify creators when deployments open.</p>
+                <p>Need the classic bonding curve experience? Switch back to <span className="text-primary">Deploy Slab Token</span>.</p>
               </div>
-            )}
+            </Card>
+          </div>
+          <Dialog open={isAccessModalOpen} onOpenChange={setIsAccessModalOpen}>
+            <DialogContent className="max-w-lg overflow-hidden rounded-2xl border border-border/60 bg-card/95 p-0 shadow-xl">
+              <div className="p-6">
+                <DialogHeader className="space-y-4 text-left">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex h-12 w-12 items-center justify-center rounded-xl ${hasSubmittedAccessRequest ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
+                        }`}
+                    >
+                      {hasSubmittedAccessRequest ? (
+                        <ShieldCheck className="h-6 w-6" />
+                      ) : (
+                        <ShieldAlert className="h-6 w-6" />
+                      )}
+                    </div>
+                    <div>
+                      <DialogTitle className="text-xl font-semibold text-foreground">
+                        {hasSubmittedAccessRequest ? "Application Submitted" : "Slab Provider Verification"}
+                      </DialogTitle>
+                      <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+                        {hasSubmittedAccessRequest
+                          ? "Your wallet has been logged for review. Our team will reach out as soon as you’re approved to create slabs."
+                          : "For the protection of traders and liquidity providers, every wallet must be vetted before creating slabs."}
+                      </DialogDescription>
+                    </div>
+                  </div>
+                </DialogHeader>
+
+                {!hasSubmittedAccessRequest ? (
+                  <div className="mt-6 space-y-4 text-sm">
+                    <div className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <span className="mt-1 h-2 w-2 rounded-full bg-primary" />
+                        <div>
+                          <p className="font-medium text-foreground">Protect traders & liquidity</p>
+                          <p className="text-xs text-muted-foreground">
+                            We review wallet history for suspicious activity before enabling slab creation.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="mt-1 h-2 w-2 rounded-full bg-primary" />
+                        <div>
+                          <p className="font-medium text-foreground">Fast turnaround</p>
+                          <p className="text-xs text-muted-foreground">
+                            Most applications are evaluated within 24 hours. You’ll be notified right away.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-muted-foreground">
+                      Submit your wallet for review to unlock Slab Lev deployments as soon as access is granted.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-4 text-sm">
+                    <div className="rounded-lg border border-success/40 bg-success/10 p-4 text-success-foreground">
+                      <p className="text-sm font-semibold">Application received</p>
+                      <p className="text-xs text-success-foreground/80">
+                        We’ll send you an in-app notification and email (if available) once you’re approved.
+                      </p>
+                    </div>
+                    <p className="text-muted-foreground">
+                      While you wait, browse the latest launches and analytics on the Discover page.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {!hasSubmittedAccessRequest ? (
+                <DialogFooter className="flex flex-col gap-2 border-t border-border/60 bg-muted/5 px-6 py-4 sm:flex-row sm:justify-between">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsAccessModalOpen(false)}
+                    className="w-full sm:w-auto"
+                  >
+                    Not now
+                  </Button>
+                  <Button onClick={handleApplyForAccess} className="w-full sm:w-auto">
+                    Submit application
+                  </Button>
+                </DialogFooter>
+              ) : (
+                <DialogFooter className="flex flex-col gap-2 border-t border-border/60 bg-muted/5 px-6 py-4 sm:flex-row sm:justify-between">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsAccessModalOpen(false)}
+                    className="w-full sm:w-auto"
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setIsAccessModalOpen(false);
+                      navigate("/discover");
+                    }}
+                    className="w-full sm:w-auto"
+                  >
+                    Explore Discover
+                  </Button>
+                </DialogFooter>
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
+      ) : (
+        <>
+          {/* Stepper */}
+          <Card className="p-6 border-card-border bg-card">
+            <div className="flex items-center justify-between">
+              {steps.map((step, index) => (
+                <div key={step.number} className="flex items-center flex-1">
+                  <div className="flex flex-col items-center flex-1">
+                    <motion.div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-all ${currentStep === step.number
+                        ? "bg-primary border-primary text-primary-foreground glow-mint"
+                        : currentStep > step.number
+                          ? "bg-success border-success text-black"
+                          : "bg-muted border-border text-muted-foreground"
+                        }`}
+                      whileHover={{ scale: 1.05 }}
+                      data-testid={`step-${step.number}`}
+                    >
+                      {currentStep > step.number ? <Check className="w-5 h-5" /> : step.number}
+                    </motion.div>
+                    <div className="text-center mt-2 hidden sm:block">
+                      <div className="text-xs font-semibold">{step.title}</div>
+                      <div className="text-xs text-muted-foreground">{step.subtitle}</div>
+                    </div>
+                  </div>
+                  {index < steps.length - 1 && (
+                    <div
+                      className={`h-0.5 flex-1 transition-all ${currentStep > step.number ? "bg-success" : "bg-border"
+                        }`}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           </Card>
-        </div>
-      </div>
-    </div >
+
+          {/* Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Form - 2 cols */}
+            <div className="lg:col-span-2">
+              <Card className="p-6 border-card-border bg-card min-h-[500px]">
+                <AnimatePresence mode="wait">
+                  {/* Step 1: Basics */}
+                  {currentStep === 1 && (
+                    <motion.div
+                      key="step1"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                      className="space-y-6"
+                    >
+                      <div>
+                        <h2 className="text-2xl font-bold mb-2 text-foreground">Slab Basics</h2>
+                        <p className="text-sm text-muted-foreground">Set up your slab identity</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="name">Slab Name</Label>
+                          <Input
+                            id="name"
+                            placeholder="e.g., Bonk Inu"
+                            value={formData.basics.name}
+                            onChange={(e) => updateFormData("basics", { name: e.target.value })}
+                            className="mt-2"
+                            data-testid="input-name"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="symbol">Symbol</Label>
+                          <Input
+                            id="symbol"
+                            placeholder="e.g., BONK"
+                            value={formData.basics.symbol}
+                            onChange={(e) => updateFormData("basics", { symbol: e.target.value.toUpperCase() })}
+                            className="mt-2"
+                            maxLength={10}
+                            data-testid="input-symbol"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="description">Description</Label>
+                          <textarea
+                            id="description"
+                            placeholder="Describe your slab..."
+                            value={formData.basics.description}
+                            onChange={(e) => updateFormData("basics", { description: e.target.value })}
+                            className="mt-2 w-full px-3 py-2 border border-input bg-background rounded-md text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                            rows={3}
+                            data-testid="input-description"
+                          />
+                        </div>
+
+                        <div>
+                          <Label>Slab Image (optional)</Label>
+                          <div className="mt-2">
+                            {imagePreview ? (
+                              <div className="relative">
+                                <div className="aspect-square w-full max-w-48 rounded-md border border-border overflow-hidden bg-muted/10">
+                                  <img
+                                    src={imagePreview}
+                                    alt="Slab preview"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={removeImage}
+                                    className="px-3"
+                                  >
+                                    <X className="w-4 h-4 mr-2" />
+                                    Remove
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  Image will be hosted automatically when generating metadata.
+                                </p>
+                              </div>
+                            ) : (
+                              <div
+                                className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-colors ${dragActive
+                                  ? "border-primary bg-primary/5"
+                                  : "border-border hover:border-primary/50"
+                                  }`}
+                                onDragEnter={handleDrag}
+                                onDragLeave={handleDrag}
+                                onDragOver={handleDrag}
+                                onDrop={handleDrop}
+                              >
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleFileInput}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <div className="space-y-2">
+                                  <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground" />
+                                  <div className="text-sm">
+                                    <span className="text-primary font-medium">Click to upload</span> or drag and drop
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    PNG, JPG, GIF up to 5MB
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Step 2: Social Media */}
+                  {currentStep === 2 && (
+                    <motion.div
+                      key="step2"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                      className="space-y-6"
+                    >
+                      <div>
+                        <h2 className="text-2xl font-bold mb-2 text-foreground">Social Links</h2>
+                        <p className="text-sm text-muted-foreground">Add your social media links (optional)</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="website">Website</Label>
+                          <Input
+                            id="website"
+                            type="url"
+                            placeholder="https://yourwebsite.com"
+                            value={formData.social.website}
+                            onChange={(e) => updateFormData("social", { website: e.target.value })}
+                            className="mt-2"
+                            data-testid="input-website"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="twitter">Twitter</Label>
+                          <Input
+                            id="twitter"
+                            type="url"
+                            placeholder="https://twitter.com/yourusername"
+                            value={formData.social.twitter}
+                            onChange={(e) => updateFormData("social", { twitter: e.target.value })}
+                            className="mt-2"
+                            data-testid="input-twitter"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="telegram">Telegram</Label>
+                          <Input
+                            id="telegram"
+                            type="url"
+                            placeholder="https://t.me/yourgroup"
+                            value={formData.social.telegram}
+                            onChange={(e) => updateFormData("social", { telegram: e.target.value })}
+                            className="mt-2"
+                            data-testid="input-telegram"
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Step 3: Deploy */}
+                  {currentStep === 3 && (
+                    <motion.div
+                      key="step3"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.2 }}
+                      className="space-y-6"
+                    >
+                      <div>
+                        <h2 className="text-2xl font-bold mb-2 text-foreground">Deploy Your Slab</h2>
+                        <p className="text-sm text-muted-foreground">Configure deployment settings and launch your bonding curve market</p>
+                      </div>
+
+                      {/* Metadata generation is now automatic - no UI needed */}
+
+                      <div>
+                        <Label htmlFor="creator-sol">Initial Buy Amount (Optional)</Label>
+                        <div className="mt-2">
+                          <div className="relative">
+                            <Input
+                              id="creator-sol"
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={formData.deployment.creatorSolAmount}
+                              onChange={(e) => updateFormData("deployment", { creatorSolAmount: parseFloat(e.target.value) })}
+                              className="pr-16"
+                              data-testid="input-creator-sol"
+                            />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                              SOL
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Optional initial purchase amount. You can launch with 0 SOL and let others buy first. The bonding curve graduates at 85 SOL total community purchases.
+                          </p>
+                          {false && (
+                            <p className="text-xs text-destructive mt-1">
+                              Increase the amount to meet the minimum LaunchLab requirement.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-3">
+                        <h3 className="font-semibold text-lg text-foreground">Deployment Summary</h3>
+
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Slab Name</span>
+                            <span className="font-medium text-foreground">{formData.basics.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Symbol</span>
+                            <span className="font-medium text-foreground">{formData.basics.symbol}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-muted-foreground">Metadata URI</span>
+                            <span className="font-medium text-foreground truncate max-w-[60%] text-right">
+                              {formData.basics.metadataUri || "Not provided"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Initial SOL</span>
+                            <span className="font-medium text-foreground">{formData.deployment.creatorSolAmount} SOL</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Graduation Threshold</span>
+                            <span className="font-medium text-success">80 SOL</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Bonding Curve</span>
+                            <span className="font-medium text-foreground">Dynamic Bonding Curve</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Deployment Cost</span>
+                            <span className="font-medium text-success">~0.01 SOL</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-muted/10 border border-border rounded-md">
+                        <div className="flex items-start gap-3">
+                          <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0"></div>
+                          <div className="space-y-2">
+                            <h4 className="font-semibold text-foreground">Ready to Launch</h4>
+                            <p className="text-sm text-muted-foreground">
+                              Your token will be created and launched using Raydium LaunchLab's dynamic bonding curve.
+                              Graduation happens automatically at 80 SOL total liquidity.
+                            </p>
+                            <div className="text-xs text-muted-foreground">
+                              • Protocol fees may apply during bonding and after graduation. See platform docs for details.
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Button
+                        className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold h-12"
+                        size="lg"
+                        onClick={deployMarket}
+                        disabled={isDeploying || isGeneratingMetadata}
+                        data-testid="button-deploy"
+                      >
+                        {isDeploying ? (
+                          <>
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            Creating Slab...
+                          </>
+                        ) : (
+                          <>
+                            <Rocket className="w-5 h-5 mr-2" />
+                            Launch Slab
+                          </>
+                        )}
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Navigation */}
+                <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+                    disabled={currentStep === 1}
+                    data-testid="button-prev-step"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Previous
+                  </Button>
+                  <div className="text-sm text-muted-foreground">
+                    Step {currentStep} of {steps.length}
+                  </div>
+                  <Button
+                    onClick={() => setCurrentStep(prev => Math.min(3, prev + 1))}
+                    disabled={currentStep === 3 || !canProceed()}
+                    data-testid="button-next-step"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              </Card>
+            </div>
+
+            {/* Live Summary - 1 col */}
+            <div>
+              <Card className="p-6 border-card-border bg-card sticky top-24">
+                <h3 className="text-lg font-semibold mb-4 text-foreground">Live Preview</h3>
+
+                {formData.basics.symbol ? (
+                  <div className="space-y-4">
+                    <div className="aspect-square w-full rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center overflow-hidden">
+                      {imagePreview ? (
+                        <img
+                          src={imagePreview}
+                          alt="Slab preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-4xl font-bold text-primary">{formData.basics.symbol.slice(0, 2)}</span>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-lg text-foreground">{formData.basics.symbol}</h4>
+                      <p className="text-sm text-muted-foreground">{formData.basics.name || "Your slab name"}</p>
+                      {formData.basics.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{formData.basics.description}</p>
+                      )}
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <Badge variant="outline" className="mb-2">Bonding Curve</Badge>
+                        <div className="flex items-center gap-2 text-xs">
+                          <div className="flex-1 h-1 bg-warning rounded" />
+                          <span className="text-warning">Bonding Phase</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs mt-1">
+                          <div className="flex-1 h-1 bg-success rounded" />
+                          <span className="text-success">Graduation at 80 SOL</span>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Initial SOL</span>
+                          <span className="font-mono font-medium text-foreground">{formData.deployment.creatorSolAmount} SOL</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Graduation</span>
+                          <span className="font-mono font-medium text-success">80 SOL</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Tax Rate</span>
+                          <span className="font-mono font-medium text-foreground">4% â†’ 1%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Deployment</span>
+                          <span className="font-mono font-medium text-success">~0.01 SOL</span>
+                        </div>
+                      </div>
+
+                      {(formData.social.website || formData.social.twitter || formData.social.telegram) && (
+                        <>
+                          <Separator />
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">Social Links</div>
+                            {formData.social.website && (
+                              <div className="text-xs text-primary truncate">ðŸŒ {formData.social.website}</div>
+                            )}
+                            {formData.social.twitter && (
+                              <div className="text-xs text-primary truncate">ðŸ¦ {formData.social.twitter}</div>
+                            )}
+                            {formData.social.telegram && (
+                              <div className="text-xs text-primary truncate">ðŸ“± {formData.social.telegram}</div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-muted-foreground">
+                      Fill in slab details to see preview
+                    </p>
+                  </div>
+                )}
+              </Card>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
