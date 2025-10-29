@@ -1,5 +1,5 @@
-﻿import session from "express-session";
-import type { Express, RequestHandler } from "express";
+﻿import type { Express, RequestHandler } from "express";
+import session from "express-session";
 import passport from "passport";
 import { storage } from "./storage";
 

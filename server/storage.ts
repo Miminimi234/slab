@@ -24,12 +24,12 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
-  
+
   // Wallet operations
   getUserWallet(userId: string): Promise<Wallet | undefined>;
   createWallet(userId: string): Promise<Wallet>;
   updateWalletBalance(walletId: string, balance: string): Promise<Wallet>;
-  
+
   // Multi-wallet operations
   getAllUserWallets(userId: string): Promise<Wallet[]>;
   createAdditionalWallet(wallet: InsertWallet): Promise<Wallet>;
@@ -64,7 +64,7 @@ class MemoryStorage implements IStorage {
 
   async createWallet(userId: string): Promise<Wallet> {
     const { publicKey, encryptedPrivateKey } = WalletService.createWallet();
-    
+
     const wallet: Wallet = {
       id: `wallet-${this.nextWalletId++}`,
       userId,
@@ -77,7 +77,7 @@ class MemoryStorage implements IStorage {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
+
     memoryDB.wallets.set(wallet.id, wallet);
     return wallet;
   }
@@ -87,13 +87,13 @@ class MemoryStorage implements IStorage {
     if (!wallet) {
       throw new Error(`Wallet ${walletId} not found`);
     }
-    
+
     const updated: Wallet = {
       ...wallet,
       balance,
       updatedAt: new Date(),
     };
-    
+
     memoryDB.wallets.set(walletId, updated);
     return updated;
   }
@@ -115,7 +115,7 @@ class MemoryStorage implements IStorage {
       updatedAt: new Date(),
       ...walletData,
     };
-    
+
     memoryDB.wallets.set(wallet.id, wallet);
     return wallet;
   }
@@ -129,13 +129,13 @@ class MemoryStorage implements IStorage {
     if (!wallet) {
       throw new Error(`Wallet ${walletId} not found`);
     }
-    
+
     const updated: Wallet = {
       ...wallet,
       ...updates,
       updatedAt: new Date(),
     };
-    
+
     memoryDB.wallets.set(walletId, updated);
     return updated;
   }

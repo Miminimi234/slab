@@ -71,13 +71,13 @@ export interface Market {
   status: MarketStatus;
   createdAt: number;
   creatorAddress: string;
-  
+
   // Social media links
   website?: string;
   twitter?: string;
   telegram?: string;
   description?: string;
-  
+
   bondingConfig: {
     curveType: BondingCurveType;
     startPrice: number;
@@ -85,13 +85,13 @@ export interface Market {
     protocolTax: number;
     seedVaultTax: number;
   };
-  
+
   graduationTriggers: {
     minLiquidity: number;
     minHolders: number;
     minAgeHours: number;
   };
-  
+
   perpsConfig: {
     tickSize: number;
     lotSize: number;
@@ -103,14 +103,14 @@ export interface Market {
     warmupHours: number;
     warmupShortLevCap: number;
   };
-  
+
   fees: {
     takerBps: number;
     makerBps: number;
     creatorFeePct: number;
     referrerFeePct: number;
   };
-  
+
   metrics: {
     currentPrice: number;
     priceChange24h: number;
@@ -164,13 +164,13 @@ export interface Position {
 
 export interface LaunchFormData {
   step: number;
-  
+
   basics: {
     name: string;
     symbol: string;
     imageUrl?: string;
   };
-  
+
   bondingCurve: {
     curveType: BondingCurveType;
     startPrice: number;
@@ -178,13 +178,13 @@ export interface LaunchFormData {
     protocolTax: number;
     seedVaultTax: number;
   };
-  
+
   graduationTriggers: {
     minLiquidity: number;
     minHolders: number;
     minAgeHours: number;
   };
-  
+
   perpsParams: {
     tickSize: number;
     lotSize: number;
@@ -196,7 +196,7 @@ export interface LaunchFormData {
     warmupHours: number;
     warmupShortLevCap: number;
   };
-  
+
   fees: {
     takerBps: number;
     makerBps: number;
