@@ -1,11 +1,32 @@
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import * as schema from "@shared/schema";
-
-if (!process.env.DATABASE_URL) {
-  console.warn("DATABASE_URL environment variable is not set, using fallback for development");
-  process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/slab_dev";
+// Simple in-memory storage - no database required
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-const sql = neon(process.env.DATABASE_URL);
-export const db = drizzle(sql, { schema });
+export interface Wallet {
+  id: string;
+  userId: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  name?: string;
+  balance?: string;
+  isPrimary?: string;
+  isArchived?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// In-memory storage
+const users = new Map<string, User>();
+const wallets = new Map<string, Wallet>();
+
+export const memoryDB = {
+  users,
+  wallets,
+};

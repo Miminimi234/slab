@@ -1,62 +1,49 @@
 import { z } from "zod";
-import { sql } from "drizzle-orm";
-import {
-  pgTable,
-  text,
-  varchar,
-  timestamp,
-  jsonb,
-  index,
-  decimal,
-} from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 
 // ============================================================================
-// AUTHENTICATION & WALLET TABLES (Replit Auth + Custodial Wallets)
+// AUTHENTICATION & WALLET TYPES (In-Memory Storage)
 // ============================================================================
 
-// Session storage table - Required for Replit Auth
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)]
-);
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// User storage table - Required for Replit Auth
-// IMPORTANT: Keeps default config for id column per Replit Auth blueprint
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+export type UpsertUser = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  profileImageUrl?: string;
+};
 
-export type User = typeof users.$inferSelect;
-export type UpsertUser = typeof users.$inferInsert;
+export interface Wallet {
+  id: string;
+  userId: string;
+  name: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  balance: string;
+  isPrimary: string;
+  isArchived: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Wallets table - Custodial Solana wallets for each user (supports multiple wallets)
-export const wallets = pgTable("wallets", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  name: varchar("name").notNull().default("Main Wallet"), // User-defined wallet name
-  publicKey: varchar("public_key").notNull().unique(),
-  encryptedPrivateKey: text("encrypted_private_key").notNull(), // Encrypted with app secret
-  balance: decimal("balance", { precision: 18, scale: 9 }).notNull().default("0"), // SOL balance
-  isPrimary: varchar("is_primary").notNull().default("false"), // Primary wallet for user
-  isArchived: varchar("is_archived").notNull().default("false"), // Archived/hidden from main view
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-export type Wallet = typeof wallets.$inferSelect;
-export type InsertWallet = typeof wallets.$inferInsert;
+export type InsertWallet = {
+  userId: string;
+  name?: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  balance?: string;
+  isPrimary?: string;
+  isArchived?: string;
+};
 
 // Zod schemas for wallet operations
 export const createWalletSchema = z.object({
