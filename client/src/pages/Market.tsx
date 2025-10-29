@@ -5,10 +5,6 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TradesFeed } from "@/components/shared/TradesFeed";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -21,9 +17,18 @@ import {
 } from "@/lib/api";
 import type { OrderBook as OrderBookType, Trade } from "@shared/schema";
 import { motion } from "framer-motion";
-import { Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import { TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
+
+function formatUsd(value: number | undefined, fallback = "$0") {
+  if (!Number.isFinite(value) || value === undefined) return fallback;
+
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toFixed(2)}`;
+}
 
 const normalizeSymbol = (value: string | null | undefined): string => {
   if (!value) return "";
@@ -213,6 +218,7 @@ const generateMockTrades = (token: JupiterToken, symbol: string, basePrice: numb
 
 export default function Market() {
   const [, params] = useRoute("/market/:symbol");
+  const [, setLocation] = useLocation();
   const routeSymbol = params?.symbol ?? "SLAB";
   const symbol = routeSymbol.toUpperCase();
   const normalizedSymbol = normalizeSymbol(routeSymbol);
@@ -229,6 +235,7 @@ export default function Market() {
   const [marketError, setMarketError] = useState<string | null>(null);
 
   // Trade ticket state
+  const [tradeMode, setTradeMode] = useState<"slab" | "spot">("slab");
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [size, setSize] = useState("");
@@ -260,7 +267,18 @@ export default function Market() {
 
         if (existingMarket) {
           setIsMockMarket(false);
-          setJupiterToken(null);
+          // attempt to fetch Jupiter token data for this market's mint so we can show Jupiter-provided liquidity/metrics
+          try {
+            const jTokenForMarket = await fetchJupiterTokenByMint(existingMarket.mintAddress);
+            if (!cancelled && jTokenForMarket) {
+              setJupiterToken(jTokenForMarket);
+            } else {
+              setJupiterToken(null);
+            }
+          } catch (err) {
+            // ignore and continue with registry data
+            setJupiterToken(null);
+          }
           setMarket(existingMarket);
           setLimitPrice(existingMarket.metrics.currentPrice.toFixed(4));
 
@@ -274,6 +292,29 @@ export default function Market() {
           setTrades(recentTrades);
           setIsMarketLoading(false);
           return;
+        }
+
+        // If the route param was a mint id (or the user navigated using an id), try fetching the Jupiter token by mint
+        try {
+          const tokenByMint = await fetchJupiterTokenByMint(routeSymbol);
+          if (!cancelled && tokenByMint) {
+            const mockMarket = createMockMarketFromToken(tokenByMint);
+            const mockOrderBook = generateMockOrderBook(tokenByMint, mockMarket.metrics.currentPrice);
+            const mockTrades = generateMockTrades(tokenByMint, mockMarket.symbol, mockMarket.metrics.currentPrice);
+
+            setIsMockMarket(true);
+            setJupiterToken(tokenByMint);
+            setMarket(mockMarket);
+            setOrderBook(mockOrderBook);
+            setTrades(mockTrades);
+            setLimitPrice(mockMarket.metrics.currentPrice.toFixed(6));
+            // store under the normalized symbol for faster future lookups
+            storeTokenForSymbol(normalizedSymbol || symbol, tokenByMint);
+            setIsMarketLoading(false);
+            return;
+          }
+        } catch (err) {
+          // ignore and continue to other resolution methods
         }
 
         if (storedToken) {
@@ -339,6 +380,10 @@ export default function Market() {
   }, [symbol, normalizedSymbol]);
 
   useEffect(() => {
+    setTradeMode("slab");
+  }, [symbol]);
+
+  useEffect(() => {
     if (!isAuthenticated) return;
 
     let cancelled = false;
@@ -355,6 +400,9 @@ export default function Market() {
           initialSelection[wallet.id] = { selected: false, solAmount: "0" };
         });
         setSelectedWallets(initialSelection);
+        // UX: automatically reveal wallet selection UI when user wallets are available
+        // so the user can easily pick wallets to trade with (avoids hidden "SELECT_WALLETS_TO_TRADE" message).
+        if (wallets.length > 0) setShowWalletSelection(true);
       } catch (error) {
         console.error("Failed to load user wallets:", error);
       }
@@ -425,7 +473,7 @@ export default function Market() {
 
   const displaySymbol = market?.symbol || symbol;
   const mintAddress = jupiterToken?.id || market?.mintAddress;
-  const gmgnInterval: "1S" | "1" | "5" | "15" | "60" | "240" | "720" | "1D" = chartMode === "candles" ? "15" : "240";
+  const gmgnInterval: "1S" | "1" | "5" | "15" | "60" | "240" | "720" | "1D" = chartMode === "candles" ? "1S" : "240";
 
   if (isMarketLoading) {
     return (
@@ -532,7 +580,7 @@ export default function Market() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-primary">{displaySymbol}</h1>
-              <StatusBadge status={market.status} />
+              <StatusBadge status={market.status} graduationProgress={market.metrics?.graduationProgress} />
             </div>
           </div>
         </div>
@@ -562,10 +610,10 @@ export default function Market() {
       </motion.div>
 
       {/* Main 3-column layout: Chart | OrderBook | Trade */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
         {/* Left: Chart */}
-        <div className="xl:col-span-6 space-y-4">
-          <Card className="p-4 border-primary/20 bg-card">
+        <div className="xl:col-span-6">
+          <Card className="p-4 border-primary/20 bg-card h-full flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <div>
@@ -585,29 +633,17 @@ export default function Market() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setChartMode("candles")}
-                  className={`text-[10px] border ${chartMode === "candles" ? "border-primary/50 text-primary" : "border-transparent"}`}
-                  data-testid="button-chart-candles"
-                >
-                  [CANDLES]
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setChartMode("twap")}
-                  className={`text-[10px] border ${chartMode === "twap" ? "border-primary/50 text-primary" : "border-transparent"}`}
-                  data-testid="button-chart-twap"
-                >
-                  [TWAP]
-                </Button>
+              <div className="flex items-center gap-4">
+                <div>
+                  <div className="text-muted-foreground text-[10px]">MC</div>
+                  <div className="font-mono font-bold text-foreground" data-numeric="true">
+                    {formatUsd(jupiterToken?.mcap ?? jupiterToken?.fdv ?? jupiterToken?.liquidity ?? market?.metrics?.liquidity)}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 -mx-4 overflow-hidden border border-primary/10 bg-background/60">
+            <div className="mt-4 -mx-4 overflow-hidden border border-primary/10 bg-background/60 flex-1">
               <GMGNWidget mintAddress={mintAddress || ""} interval={gmgnInterval} height={420} />
             </div>
 
@@ -616,242 +652,53 @@ export default function Market() {
 
         {/* Middle: Order Book */}
         <div className="xl:col-span-3">
-          <Card className="border-primary/20 bg-card overflow-hidden h-full">
+          <Card className="border-primary/20 bg-card overflow-hidden h-full flex flex-col">
             <div className="p-3 border-b border-primary/20">
               <h3 className="text-xs font-bold text-primary">ORDER_BOOK.DB</h3>
             </div>
-            <OrderBook
-              bids={orderBook.bids}
-              asks={orderBook.asks}
-            />
+            <div className="flex-1 overflow-hidden">
+              <OrderBook
+                bids={orderBook.bids}
+                asks={orderBook.asks}
+              />
+            </div>
           </Card>
         </div>
 
-        {/* Right: Trade Panel */}
+        {/* Right: Trade */}
         <div className="xl:col-span-3">
-          <Card className="p-4 border-primary/20 bg-card">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-bold text-primary">TRADE.EXEC</h3>
+          <Card className="border-primary/20 bg-card h-full flex flex-col">
+            <div className="p-3 border-b border-primary/20">
+              <h3 className="text-xs font-bold text-primary">TRADE</h3>
             </div>
-
-            {/* Order Type Tabs */}
-            <Tabs value={orderType} onValueChange={(v) => setOrderType(v as "market" | "limit")} className="mb-4">
-              <TabsList className="grid w-full grid-cols-2 bg-background border border-primary/20">
-                <TabsTrigger
-                  value="market"
-                  className="text-[10px] data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                  data-testid="tab-market"
-                >
-                  [MARKET]
-                </TabsTrigger>
-                <TabsTrigger
-                  value="limit"
-                  className="text-[10px] data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                  data-testid="tab-limit"
-                >
-                  [LIMIT]
-                </TabsTrigger>
-              </TabsList>
+            <Tabs defaultValue="slab" className="flex-1">
+              <div className="border-b border-primary/20 px-3">
+                <TabsList className="bg-transparent border-0 w-full grid grid-cols-2">
+                  <TabsTrigger
+                    value="slab"
+                    className="text-[10px] px-4 py-2 font-mono tracking-wide w-full flex justify-center items-center data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary"
+                    data-testid="trade-tab-slab"
+                  >
+                    [SLAB]
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="spot"
+                    className="text-[10px] px-4 py-2 font-mono tracking-wide w-full flex justify-center items-center data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary"
+                    data-testid="trade-tab-spot"
+                  >
+                    [SPOT]
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <div className="flex-1">
+                <TabsContent value="slab" className="mt-0 p-6 text-muted-foreground text-xs">
+                  &gt; COMING_SOON
+                </TabsContent>
+                <TabsContent value="spot" className="mt-0 p-6 text-muted-foreground text-xs">
+                  &gt; COMING_SOON
+                </TabsContent>
+              </div>
             </Tabs>
-
-            {/* Buy/Sell Tabs */}
-            <Tabs value={side} onValueChange={(v) => setSide(v as "buy" | "sell")} className="mb-4">
-              <TabsList className="grid w-full grid-cols-2 bg-background border border-primary/20">
-                <TabsTrigger
-                  value="buy"
-                  className="text-[10px] data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                  data-testid="tab-buy"
-                >
-                  [BUY]
-                </TabsTrigger>
-                <TabsTrigger
-                  value="sell"
-                  className="text-[10px] data-[state=active]:bg-destructive/10 data-[state=active]:text-destructive"
-                  data-testid="tab-sell"
-                >
-                  [SELL]
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <div className="space-y-3">
-              {/* Limit Price (only for limit orders) */}
-              {orderType === "limit" && (
-                <div>
-                  <Label htmlFor="limit-price" className="text-[10px] text-muted-foreground mb-1.5 block">
-                    LIMIT_PRICE
-                  </Label>
-                  <Input
-                    id="limit-price"
-                    type="number"
-                    placeholder="0.0000"
-                    value={limitPrice}
-                    onChange={(e) => setLimitPrice(e.target.value)}
-                    className="font-mono text-sm h-9 bg-background border-primary/20"
-                    data-testid="input-limit-price"
-                  />
-                </div>
-              )}
-
-              {/* Size */}
-              <div>
-                <Label htmlFor="size-input" className="text-[10px] text-muted-foreground mb-1.5 block">
-                  SIZE ({displaySymbol})
-                </Label>
-                <Input
-                  id="size-input"
-                  type="number"
-                  placeholder="0.00"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                  className="font-mono text-sm h-9 bg-background border-primary/20"
-                  data-testid="input-size"
-                />
-              </div>
-
-              {/* Multiplier Slider */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <Label className="text-[10px] text-muted-foreground">
-                    MULTIPLIER
-                  </Label>
-                  <span className="text-xs font-bold font-mono text-primary" data-numeric="true">
-                    {multiplier[0]}x
-                  </span>
-                </div>
-                <Slider
-                  value={multiplier}
-                  onValueChange={setMultiplier}
-                  max={100}
-                  min={1}
-                  step={1}
-                  className="mb-1"
-                  data-testid="slider-multiplier"
-                />
-                <div className="flex justify-between text-[9px] text-muted-foreground">
-                  <span>1x</span>
-                  <span>50x</span>
-                  <span>100x</span>
-                </div>
-              </div>
-
-              {/* Order Summary */}
-              <div className="space-y-1.5 text-[10px] p-3 bg-background/50 border border-primary/20">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">PRICE</span>
-                  <span className="font-mono text-foreground" data-numeric="true">
-                    ${orderType === "market" ? market.metrics.currentPrice.toFixed(4) : (limitPrice || "0.0000")}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">SIZE</span>
-                  <span className="font-mono text-foreground" data-numeric="true">{size || "0.00"}</span>
-                </div>
-                {multiplier[0] > 1 && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">MULTIPLIER</span>
-                    <span className="font-mono text-primary" data-numeric="true">{multiplier[0]}x</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">EFFECTIVE_SIZE</span>
-                  <span className="font-mono text-foreground" data-numeric="true">{effectiveSize.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between pt-1.5 border-t border-primary/20">
-                  <span className="text-primary">TOTAL</span>
-                  <span className="font-mono font-bold text-primary" data-numeric="true">
-                    ${total.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Multi-Wallet Selection */}
-              {isAuthenticated && userWallets.length > 1 && (
-                <div className="space-y-3 pt-3 border-t border-primary/20">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-primary">WALLET SELECTION</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs h-6 px-2"
-                      onClick={() => setShowWalletSelection(!showWalletSelection)}
-                    >
-                      {showWalletSelection ? <Minus className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                      {showWalletSelection ? "HIDE" : "SELECT"}
-                    </Button>
-                  </div>
-
-                  {showWalletSelection && (
-                    <div className="space-y-2 max-h-32 overflow-y-auto">
-                      {userWallets.map((wallet) => (
-                        <div key={wallet.id} className="flex items-center gap-2 p-2 bg-background/50 border border-primary/10 rounded">
-                          <Checkbox
-                            checked={selectedWallets[wallet.id]?.selected || false}
-                            onCheckedChange={() => toggleWalletSelection(wallet.id)}
-                            className="w-3 h-3"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-mono text-primary truncate">
-                              {wallet.name} ({wallet.publicKey.slice(0, 8)}...)
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Balance: {parseFloat(wallet.balance || "0").toFixed(4)} SOL
-                            </div>
-                          </div>
-                          {selectedWallets[wallet.id]?.selected && (
-                            <div className="w-20">
-                              <Input
-                                type="number"
-                                placeholder="0.00"
-                                value={selectedWallets[wallet.id]?.solAmount || ""}
-                                onChange={(e) => updateWalletSolAmount(wallet.id, e.target.value)}
-                                className="text-xs h-6"
-                                step="0.01"
-                                min="0"
-                                max={wallet.balance}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {getSelectedWalletsCount() > 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      Selected: {getSelectedWalletsCount()} wallet(s) | Total SOL: {getTotalSelectedSol().toFixed(4)}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Submit Button */}
-              <motion.div whileTap={{ scale: 0.98 }}>
-                <Button
-                  variant="outline"
-                  className={`w-full h-9 font-bold text-[10px] ${side === "buy"
-                    ? "border-primary/30 text-primary hover:bg-primary/10"
-                    : "border-destructive/30 text-destructive hover:bg-destructive/10"
-                    }`}
-                  disabled={!size || parseFloat(size) <= 0 || (orderType === "limit" && !limitPrice) || (getSelectedWalletsCount() > 0 && getTotalSelectedSol() <= 0)}
-                  data-testid="button-trade-submit"
-                >
-                  {getSelectedWalletsCount() > 0
-                    ? `[${orderType.toUpperCase()}_${side.toUpperCase()}_${getSelectedWalletsCount()}W]`
-                    : `[${orderType.toUpperCase()}_${side.toUpperCase()}]`
-                  }
-                </Button>
-              </motion.div>
-
-              <div className="text-[9px] text-center text-muted-foreground">
-                {isAuthenticated
-                  ? (getSelectedWalletsCount() > 0
-                    ? `> READY_TO_TRADE_WITH_${getSelectedWalletsCount()}_WALLETS`
-                    : "> SELECT_WALLETS_TO_TRADE")
-                  : "> CONNECT_WALLET_TO_TRADE"
-                }
-              </div>
-            </div>
           </Card>
         </div>
       </div>
