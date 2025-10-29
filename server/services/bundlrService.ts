@@ -2,10 +2,16 @@ import Bundlr from "@bundlr-network/client";
 import BigNumber from "bignumber.js";
 import bs58 from "bs58";
 
+type BundlrClient = InstanceType<typeof Bundlr>;
+
 const BUNDLR_CACHE: {
-  client: Bundlr | null;
+  client: BundlrClient | null;
+  gatewayBase: string | null;
+  gatewayDataSuffix: string;
 } = {
   client: null,
+  gatewayBase: null,
+  gatewayDataSuffix: "",
 };
 
 function decodePrivateKey(secret: string): Uint8Array | string {
@@ -27,7 +33,7 @@ function decodePrivateKey(secret: string): Uint8Array | string {
   }
 }
 
-async function ensureClient(): Promise<Bundlr> {
+async function ensureClient(): Promise<BundlrClient> {
   if (BUNDLR_CACHE.client) {
     return BUNDLR_CACHE.client;
   }
@@ -48,10 +54,23 @@ async function ensureClient(): Promise<Bundlr> {
 
   await client.ready();
   BUNDLR_CACHE.client = client;
+
+  const explicitGateway = process.env.BUNDLR_GATEWAY_BASE_URL?.trim();
+  if (explicitGateway) {
+    BUNDLR_CACHE.gatewayBase = explicitGateway.replace(/\/$/, "");
+    BUNDLR_CACHE.gatewayDataSuffix = "";
+  } else if (nodeUrl.includes("devnet.bundlr.network")) {
+    BUNDLR_CACHE.gatewayBase = "https://devnet.bundlr.network/tx";
+    BUNDLR_CACHE.gatewayDataSuffix = "/data";
+  } else {
+    BUNDLR_CACHE.gatewayBase = "https://arweave.net";
+    BUNDLR_CACHE.gatewayDataSuffix = "";
+  }
+
   return client;
 }
 
-async function ensureFunds(client: Bundlr, price: BigNumber) {
+async function ensureFunds(client: BundlrClient, price: BigNumber) {
   const loadedBalance = await client.getLoadedBalance();
 
   if (loadedBalance.gte(price)) {
@@ -72,31 +91,57 @@ async function ensureFunds(client: Bundlr, price: BigNumber) {
 export interface UploadResult {
   arweaveUrl: string;
   transactionId: string;
+  gatewayUrl: string;
+  contentType: string;
 }
 
 export async function uploadToBundlr(
   data: Buffer,
   contentType: string,
-  tags: Array<{ name: string; value: string }> = []
+  tags: Array<{ name: string; value: string }> = [],
+  attempt = 0
 ): Promise<UploadResult> {
-  const client = await ensureClient();
-  const price = await client.getPrice(data.length);
+  try {
+    const client = await ensureClient();
+    const price = await client.getPrice(data.length);
 
-  console.log(
-    `[Bundlr] Uploading ${contentType} (${data.length} bytes) costing ${client.utils.fromAtomic(
-      price
-    )} ${client.currency}`
-  );
+    console.log(
+      `[Bundlr] Uploading ${contentType} (${data.length} bytes) costing ${client.utils.fromAtomic(
+        price
+      )} ${client.currency}`
+    );
 
-  await ensureFunds(client, price);
+    await ensureFunds(client, price);
 
-  const receipt = await client.upload(data, {
-    tags: [{ name: "Content-Type", value: contentType }, ...tags],
-  });
+    const receipt = await client.upload(data, {
+      tags: [{ name: "Content-Type", value: contentType }, ...tags],
+    });
 
-  return {
-    arweaveUrl: `https://arweave.net/${receipt.id}`,
-    transactionId: receipt.id,
-  };
+    const base = (BUNDLR_CACHE.gatewayBase || "https://arweave.net").replace(/\/$/, "");
+    const suffix = BUNDLR_CACHE.gatewayDataSuffix || "";
+    const gatewayUrl = `${base}/${receipt.id}${suffix}`;
+
+    return {
+      arweaveUrl: `https://arweave.net/${receipt.id}`,
+      gatewayUrl,
+      transactionId: receipt.id,
+      contentType,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const shouldRetry =
+      attempt === 0 &&
+      /block height exceeded|expired/i.test(message);
+
+    if (shouldRetry) {
+      console.warn("[Bundlr] Upload failed due to expired blockhash. Resetting client and retrying once...");
+      BUNDLR_CACHE.client = null;
+      BUNDLR_CACHE.gatewayBase = null;
+      BUNDLR_CACHE.gatewayDataSuffix = "";
+      return uploadToBundlr(data, contentType, tags, attempt + 1);
+    }
+
+    throw error;
+  }
 }
 

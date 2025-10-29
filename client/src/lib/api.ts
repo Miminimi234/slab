@@ -96,6 +96,8 @@ export interface JupiterTopTrendingToken {
 }
 
 export interface JupiterTopTrendingSnapshot {
+  metadataArweaveUri?: string;
+  imageArweaveUrl?: string;
   timeframe: string;
   limit: number;
   tokens: JupiterTopTrendingToken[];
@@ -390,6 +392,9 @@ export async function generateLaunchpadMetadata(payload: {
   success: boolean;
   metadataUri?: string;
   imageUrl?: string;
+  metadataArweaveUri?: string;
+  imageArweaveUrl?: string;
+  imageContentType?: string;
   metadata?: Record<string, unknown>;
   error?: string;
 }> {

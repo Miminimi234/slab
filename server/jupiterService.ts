@@ -107,6 +107,19 @@ export class JupiterService {
     return value.toLowerCase().replace(/[^a-z0-9]/g, "");
   }
 
+  private static looksLikeMintAddress(value: string | undefined | null): boolean {
+    if (!value) {
+      return false;
+    }
+
+    const candidate = value.trim();
+    if (candidate.length < 32 || candidate.length > 44) {
+      return false;
+    }
+
+    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(candidate);
+  }
+
   private tokens: JupiterToken[] = [];
   private fetchedAt: Date | null = null;
   private lastError: string | undefined;
@@ -152,11 +165,11 @@ export class JupiterService {
 
   private cleanupCache() {
     const now = Date.now();
-    for (const [key, entry] of this.searchCache.entries()) {
+    this.searchCache.forEach((entry, key) => {
       if (now - entry.timestamp > this.searchCacheTTL) {
         this.searchCache.delete(key);
       }
-    }
+    });
   }
 
   getSnapshot(): JupiterBroadcastPayload {
@@ -195,10 +208,6 @@ export class JupiterService {
       const response = await fetch(url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'application/json',
-        },
-        headers: {
           "User-Agent": "slab-trade/1.0 (+https://slab.trade)",
           Accept: "application/json",
         },
@@ -221,7 +230,11 @@ export class JupiterService {
       }
 
       const tokens = (await response.json()) as JupiterSearchToken[];
-      const filtered = tokens.filter((token) => this.isLaunchpadAllowed(token as unknown as JupiterToken));
+      const looksLikeMint = JupiterService.looksLikeMintAddress(query);
+
+      const filtered = looksLikeMint
+        ? tokens
+        : tokens.filter((token) => this.isLaunchpadAllowed(token as unknown as JupiterToken));
 
       // Cache the results
       this.searchCache.set(cacheKey, { tokens: filtered, timestamp: now });
@@ -353,13 +366,13 @@ export class JupiterService {
     }
 
     const data = JSON.stringify(payload);
-    for (const res of this.subscribers) {
+    this.subscribers.forEach((res) => {
       if (res.writableEnded) {
         this.subscribers.delete(res);
-        continue;
+        return;
       }
       this.dispatch(res, event, data);
-    }
+    });
   }
 
   private dispatch(res: Response, event: string, payload: JupiterBroadcastPayload | string) {

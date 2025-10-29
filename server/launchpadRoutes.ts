@@ -42,6 +42,27 @@ router.post('/metadata', async (req, res) => {
             typeof imageContentType === 'string' && imageContentType.length > 0
                 ? imageContentType
                 : undefined;
+        const appendExtensionQuery = (url: string, contentType: string | undefined) => {
+            if (!url || !contentType) return url;
+            const normalized = contentType.toLowerCase();
+            const mimeToExt: Record<string, string> = {
+                'image/png': 'png',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/gif': 'gif',
+                'image/webp': 'webp',
+                'image/svg+xml': 'svg',
+                'image/avif': 'avif',
+                'image/bmp': 'bmp',
+                'image/tiff': 'tiff',
+                'application/json': 'json',
+            };
+            const ext = mimeToExt[normalized];
+            if (!ext) return url;
+            return url.includes('?') ? `${url}&ext=${ext}` : `${url}?ext=${ext}`;
+        };
+
+        let uploadedImageArweaveUrl: string | undefined;
 
         if (!finalImageUrl) {
             if (typeof imageDataUrl !== 'string' || imageDataUrl.length === 0) {
@@ -60,7 +81,8 @@ router.post('/metadata', async (req, res) => {
             }
 
             const imageUpload = await uploadToBundlr(parsed.buffer, parsed.mimeType);
-            finalImageUrl = imageUpload.arweaveUrl;
+            finalImageUrl = appendExtensionQuery(imageUpload.gatewayUrl, parsed.mimeType);
+            uploadedImageArweaveUrl = appendExtensionQuery(imageUpload.arweaveUrl, parsed.mimeType);
             finalImageContentType = parsed.mimeType;
 
             log(
@@ -105,15 +127,21 @@ router.post('/metadata', async (req, res) => {
             'application/json'
         );
 
+        const metadataGatewayUrl = appendExtensionQuery(metadataUpload.gatewayUrl, 'application/json');
+        const metadataArweaveUrl = appendExtensionQuery(metadataUpload.arweaveUrl, 'application/json');
+
         log(
             `[Launchpad] Hosted metadata on Arweave (tx: ${metadataUpload.transactionId}) for ${symbol}`
         );
 
         return res.json({
             success: true,
-            metadataUri: metadataUpload.arweaveUrl,
+            metadataUri: metadataGatewayUrl,
+            metadataArweaveUri: metadataArweaveUrl,
             imageUrl: finalImageUrl,
+            imageArweaveUrl: uploadedImageArweaveUrl ?? finalImageUrl,
             metadata,
+            imageContentType: finalImageContentType,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error uploading metadata';

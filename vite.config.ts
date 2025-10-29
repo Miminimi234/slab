@@ -7,6 +7,7 @@ export default defineConfig({
     react(),
     // Removed runtime error overlay plugin completely
   ],
+  envDir: path.resolve(import.meta.dirname),
   define: {
     global: 'globalThis',
     'process.env': {},

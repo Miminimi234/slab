@@ -6,12 +6,133 @@ import {
     LAUNCHPAD_PROGRAM,
     LaunchpadConfig,
     Raydium,
+    TxBuilder,
     TxVersion,
 } from "@raydium-io/raydium-sdk-v2";
 import { NATIVE_MINT } from "@solana/spl-token";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import {
+    Connection,
+    Keypair,
+    PublicKey,
+    Transaction,
+    TransactionMessage,
+    VersionedTransaction,
+} from "@solana/web3.js";
 import BN from "bn.js";
 import "./bufferPolyfill";
+
+// Monkey patch TxBuilder size checks to inspect instruction sizes when they fail
+const txBuilderProto = (TxBuilder as unknown as { prototype: Record<string, any> }).prototype;
+if (txBuilderProto && !txBuilderProto.__slabSizeLoggerPatched) {
+    const originalSizeCheckBuild = txBuilderProto.sizeCheckBuild;
+    const originalSizeCheckBuildV0 = txBuilderProto.sizeCheckBuildV0;
+    const originalBuildV0 = txBuilderProto.buildV0;
+
+    const logInstructionSizes = function (this: any, label: string) {
+        try {
+            const instructions: any[] = this.allInstructions || [];
+            console.warn(`[WARN] ${label} failed size check. Instruction count:`, instructions.length);
+            instructions.forEach((instruction: any, idx: number) => {
+                try {
+                    const tx = new Transaction();
+                    tx.add(instruction);
+                    tx.recentBlockhash = Keypair.generate().publicKey.toBase58();
+                    tx.feePayer = Keypair.generate().publicKey;
+                    const base64Length = Buffer.from(
+                        tx.serialize({ verifySignatures: false })
+                    ).toString("base64").length;
+                    const accountCount = instruction?.keys?.length ?? 0;
+                    const dataLength = instruction?.data?.length ?? 0;
+                    const programId = instruction?.programId?.toBase58?.()
+                        ?? instruction?.programId?.toString?.()
+                        ?? "unknown-program";
+                    console.warn(
+                        `[WARN] Instruction ${idx} base64 length: ${base64Length} | accounts: ${accountCount} | data bytes: ${dataLength} | programId: ${programId}`
+                    );
+                    if (Array.isArray(instruction?.keys)) {
+                        const accountList = instruction.keys
+                            .map((meta: any, metaIdx: number) => {
+                                const pubkey = meta?.pubkey?.toBase58?.()
+                                    ?? meta?.pubkey?.toString?.()
+                                    ?? `unknown-${metaIdx}`;
+                                const flags = `${meta?.isSigner ? "S" : "-"}${meta?.isWritable ? "W" : "-"}`;
+                                return `${metaIdx}:${flags}:${pubkey}`;
+                            })
+                            .join(", ");
+                        console.warn(`[WARN] Instruction ${idx} accounts: ${accountList}`);
+                    }
+                    if (instruction?.data) {
+                        const hexPreview = instruction.data.subarray(0, 32).toString("hex");
+                        console.warn(
+                            `[WARN] Instruction ${idx} data[0..32] hex preview: ${hexPreview}`
+                        );
+                    }
+
+                    try {
+                        const msg = new TransactionMessage({
+                            payerKey: tx.feePayer!,
+                            recentBlockhash: tx.recentBlockhash!,
+                            instructions: [instruction],
+                        }).compileToV0Message();
+                        const versioned = new VersionedTransaction(msg);
+                        const raw = versioned.serialize();
+                        console.warn(
+                            `[WARN] Instruction ${idx} VersionedTransaction byteLen: ${raw.length}`
+                        );
+                    } catch (serialError) {
+                        console.warn("[WARN] Unable to compute versioned tx length:", serialError);
+                    }
+                } catch (instructionError) {
+                    console.warn(`[WARN] Failed to measure instruction ${idx}:`, instructionError);
+                }
+            });
+        } catch (outerError) {
+            console.warn("[WARN] Unable to log instruction sizes:", outerError);
+        }
+    };
+
+    txBuilderProto.sizeCheckBuild = async function (...args: any[]) {
+        try {
+            return await originalSizeCheckBuild.apply(this, args);
+        } catch (error) {
+            logInstructionSizes.call(this, "Legacy transaction");
+            throw error;
+        }
+    };
+
+    txBuilderProto.sizeCheckBuildV0 = async function (...args: any[]) {
+        try {
+            return await originalSizeCheckBuildV0.apply(this, args);
+        } catch (error) {
+            logInstructionSizes.call(this, "Versioned transaction");
+            const instructions: any[] = this.allInstructions || [];
+            try {
+                if (instructions.length > 0 && typeof originalBuildV0 === "function") {
+                    const fallback = await originalBuildV0.apply(this, args);
+                    const serialized = fallback?.transaction?.serialize?.();
+                    if (serialized) {
+                        const byteLength = serialized.length;
+                        const base64Length = Buffer.from(serialized).toString("base64").length;
+                        console.warn(
+                            `[WARN] Fallback buildV0 succeeded (bytes=${byteLength}, base64=${base64Length}). Bypassing Raydium size check.`
+                        );
+                        if (byteLength < 1232) {
+                            return fallback;
+                        }
+                        console.warn(
+                            `[WARN] Fallback transaction still exceeds Solana max size. Allowing original error to propagate.`
+                        );
+                    }
+                }
+            } catch (fallbackError) {
+                console.warn("[WARN] Fallback buildV0 attempt failed:", fallbackError);
+            }
+            throw error;
+        }
+    };
+
+    txBuilderProto.__slabSizeLoggerPatched = true;
+}
 
 // -------------------------------------------------------------
 // Types
@@ -62,7 +183,7 @@ function makePureWalletAdapter(userWallet: any) {
         },
         signAllTransactions: async (txs: any[]) => {
             const signed = await userWallet.signAllTransactions(txs);
-            signed.forEach((s, i) => (s.serialize = txs[i].serialize.bind(s)));
+            signed.forEach((s: any, i: number) => (s.serialize = txs[i].serialize.bind(s)));
             return signed;
         },
     };
@@ -120,6 +241,7 @@ export class RaydiumClientSDK {
             disableFeatureCheck: true,
             disableLoadToken: false,
             blockhashCommitment: "finalized",
+            signAllTransactions: normalizedWallet.signAllTransactions,
             ...(this.cluster === "devnet"
                 ? {
                     urlConfigs: {
@@ -134,14 +256,18 @@ export class RaydiumClientSDK {
                 : {}),
         });
 
-        // Store the normalized wallet for transaction signing
         (this.raydium as any)._normalizedWallet = normalizedWallet;
-
+        this.raydium.setSignAllTransactions(normalizedWallet.signAllTransactions);
+        (this.raydium as any)._normalizedWallet = normalizedWallet;
+        const raydiumOwner: any = this.raydium.owner;
         console.log(
             "[DEBUG] Raydium owner initialized:",
-            this.raydium.owner instanceof PublicKey,
-            "| publicKey:",
-            (this.raydium.owner as any)?.publicKey?.toBase58?.() ?? 'N/A'
+            {
+                type: raydiumOwner?.constructor?.name,
+                hasOwner: !!raydiumOwner,
+                ownerIsKeypair: raydiumOwner?.isKeyPair ?? false,
+                publicKey: raydiumOwner?.publicKey?.toBase58?.() ?? "N/A",
+            }
         );
 
         console.log("[RaydiumClient] SDK initialized with browser wallet adapter");
@@ -199,6 +325,20 @@ export class RaydiumClientSDK {
         });
 
         console.log("[DEBUG] About to call createLaunchpad...");
+        const metadataUriLength = metadata.uri?.length ?? 0;
+        console.log("[DEBUG] Metadata URI length:", metadataUriLength);
+        if (typeof metadata.uri === "string") {
+            const preview = metadata.uri.length > 120
+                ? `${metadata.uri.slice(0, 120)}...`
+                : metadata.uri;
+            console.log("[DEBUG] Metadata URI preview:", preview);
+        }
+        if (metadataUriLength > 512 && typeof metadata.uri === "string") {
+            console.warn(
+                "[WARN] Metadata URI exceeds 512 characters (will increase transaction size)",
+                metadata.uri.substring(0, 256) + "..."
+            );
+        }
 
         try {
             // Create the launchpad with minimal parameters to avoid transaction size issues
@@ -214,16 +354,50 @@ export class RaydiumClientSDK {
                 configInfo,
                 mintBDecimals: mintBInfo.decimals,
                 platformId: slabPlatformId, // Always include platformId
-                txVersion: TxVersion.LEGACY, // Use legacy transactions to avoid size issues
+                txVersion: TxVersion.V0, // Use versioned transactions for larger instruction capacity
                 slippage: new BN(500), // 5% slippage
                 buyAmount: buyAmountBN,
-                createOnly: params.createOnly,
+                createOnly: true,
                 extraSigners: [mintKeypair],
             };
 
             console.log("[DEBUG] CreateLaunchpad params:", createParams);
 
-            const { execute, extInfo } = await this.raydium!.launchpad.createLaunchpad(createParams);
+            const launchpadBuild = await this.raydium!.launchpad.createLaunchpad(createParams);
+            const lookupTables = (launchpadBuild as any)?.builder?.lookupTableAddress;
+            console.log("[DEBUG] Builder lookup tables:", lookupTables);
+            const builderRef = (launchpadBuild as any)?.builder;
+            if (builderRef) {
+                const defaultLut = this.cluster === "devnet"
+                    ? "EFhMuDw1PKEuckuFRW9PavNfTH4LKP5uKHgyXDmWpFCq"
+                    : "AcL1Vo8oy1ULiavEcjSUcwfBSForXMudcZvDZy5nzJkU";
+                const existing = Array.isArray(builderRef.lookupTableAddress)
+                    ? builderRef.lookupTableAddress
+                    : [];
+                if (!existing.includes(defaultLut)) {
+                    builderRef.lookupTableAddress = [...existing, defaultLut];
+                }
+                console.log("[DEBUG] Applied default LUT:", builderRef.lookupTableAddress);
+            }
+            const { execute, extInfo } = launchpadBuild;
+
+            const builderInstructions = (launchpadBuild as any)?.builder?.allInstructions ?? [];
+            console.log("[DEBUG] Instruction count:", builderInstructions.length);
+            builderInstructions.forEach((instruction: any, idx: number) => {
+                try {
+                    const tx = new Transaction();
+                    tx.add(instruction);
+                    const blockhash = Keypair.generate().publicKey.toBase58();
+                    tx.recentBlockhash = blockhash;
+                    tx.feePayer = Keypair.generate().publicKey;
+                    const sizeBase64 = Buffer.from(
+                        tx.serialize({ verifySignatures: false })
+                    ).toString("base64").length;
+                    console.log(`[DEBUG] Instruction ${idx} base64 length:`, sizeBase64);
+                } catch (instructionError) {
+                    console.warn(`[WARN] Failed to measure instruction ${idx} size:`, instructionError);
+                }
+            });
 
             console.log("[DEBUG] Launchpad transaction built, executing...");
 

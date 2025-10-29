@@ -7,11 +7,15 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { generateLaunchpadMetadata, getLaunchpadConfig } from "@/lib/api";
+import { persistTokenRecord } from "@/lib/firebaseTokenRegistry";
+import { compressImageFile } from "@/lib/imageCompression";
+import { StoredMarketToken, storeMarketToken } from "@/lib/localMarkets";
 import { LaunchpadCreateParams, raydiumClient } from "@/lib/raydiumClient";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Image as ImageIcon, Loader2, Rocket, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 
 // 🔧 Clean Phantom wallet into Raydium-compatible adapter
 function makePureWalletAdapter(userWallet: any) {
@@ -94,6 +98,7 @@ type LaunchFormSection = keyof Omit<LaunchFormState, "step">;
 export default function Launch() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
+  const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [isDeploying, setIsDeploying] = useState(false);
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
@@ -256,7 +261,7 @@ export default function Launch() {
     });
 
   // Image handling functions
-  const handleImageFile = (file: File) => {
+  const handleImageFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       toast({
         title: "Invalid File Type",
@@ -275,16 +280,33 @@ export default function Launch() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImagePreview(result);
-      setImageContentType(file.type || null);
-      updateFormData("basics", {
-        // imageUrl and metadataUri removed - auto-generated
+    try {
+      const compressed = await compressImageFile(file, {
+        maxBytes: 50 * 1024,
+        maxWidth: 512,
+        maxHeight: 512,
       });
-    };
-    reader.readAsDataURL(file);
+
+      setImagePreview(compressed.dataUrl);
+      setImageContentType(compressed.contentType || file.type || null);
+      updateFormData("basics", {
+        imageFile: file,
+      });
+
+      if (compressed.wasCompressed) {
+        toast({
+          title: "Image Optimized",
+          description: `Compressed to ${(compressed.compressedSize / 1024).toFixed(1)} KB (${Math.round((compressed.compressedSize / file.size) * 100)}% of original).`,
+        });
+      }
+    } catch (error) {
+      console.error("Image compression failed", error);
+      toast({
+        title: "Image Processing Failed",
+        description: error instanceof Error ? error.message : "Unable to process the selected image.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -303,13 +325,13 @@ export default function Launch() {
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleImageFile(e.dataTransfer.files[0]);
+      void handleImageFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      handleImageFile(e.target.files[0]);
+      void handleImageFile(e.target.files[0]);
     }
   };
 
@@ -318,7 +340,8 @@ export default function Launch() {
     setImageContentType(null);
     updateFormData("basics", {
       imageUrl: "",
-      metadataUri: ""
+      metadataUri: "",
+      imageFile: null,
     });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -381,6 +404,10 @@ export default function Launch() {
         metadataUri: result.metadataUri,
         imageUrl: finalImageUrl ?? "",
       });
+
+      if (result.imageContentType) {
+        setImageContentType(result.imageContentType);
+      }
 
       if (result.imageUrl && !result.imageUrl.startsWith("data:")) {
         setImagePreview(result.imageUrl);
@@ -516,6 +543,7 @@ export default function Launch() {
 
       // Auto-generate metadata URI
       let metadataUri = '';
+      let metadataImageUrl: string | null = null;
       try {
         const metadataResult = await generateLaunchpadMetadata({
           name: trimmedName,
@@ -533,6 +561,7 @@ export default function Launch() {
 
         if (metadataResult.success && metadataResult.metadataUri) {
           metadataUri = metadataResult.metadataUri;
+          metadataImageUrl = metadataResult.imageUrl || formData.basics.imageUrl || imagePreview || null;
         } else {
           throw new Error(metadataResult.error || 'Failed to generate metadata');
         }
@@ -545,6 +574,7 @@ export default function Launch() {
         });
         // Use fallback metadata URI
         metadataUri = 'https://slab.trade/token-metadata.json';
+        metadataImageUrl = formData.basics.imageUrl || imagePreview || null;
       }
 
       toast({
@@ -611,6 +641,56 @@ export default function Launch() {
         signatures: sdkResult.txIds,
         metadataUri,
       });
+
+      const poolId = sdkResult.poolId && sdkResult.poolId !== "unknown" ? sdkResult.poolId : undefined;
+      const creatorAddress = cleanWallet.publicKey.toBase58();
+      if (!sdkResult.mintAddress) {
+        throw new Error("Mint address missing from Raydium SDK response");
+      }
+      const mintAddress = sdkResult.mintAddress;
+
+      const marketSnapshot: StoredMarketToken = {
+        id: mintAddress,
+        mintAddress,
+        poolId,
+        name: trimmedName,
+        symbol: trimmedSymbol.toUpperCase(),
+        icon: metadataImageUrl ?? undefined,
+        imageUrl: metadataImageUrl ?? undefined,
+        metadataUri,
+        creator: creatorAddress,
+        launchedAt: Date.now(),
+        cluster: 'devnet',
+        decimals: 6,
+        description: formData.basics.description || undefined,
+        website: formData.social.website || undefined,
+        twitter: formData.social.twitter || undefined,
+        telegram: formData.social.telegram || undefined,
+        launchpad: "SLAB",
+        tags: ["SLAB"],
+        usdPrice: 0,
+        stats24h: { priceChange: 0, buyVolume: 0, sellVolume: 0 },
+        liquidity: 0,
+        holderCount: 0,
+      };
+
+      try {
+        const persisted = await persistTokenRecord({
+          mintAddress,
+          name: trimmedName,
+          symbol: trimmedSymbol.toUpperCase(),
+          imageUrl: metadataImageUrl ?? undefined,
+          description: formData.basics.description,
+          deployer: creatorAddress,
+          createdAt: new Date().toISOString(),
+        });
+        console.info(`[Firebase] Token registry write result: ${persisted ? "success" : "skipped"}`);
+      } catch (firebaseError) {
+        console.warn("Failed to sync token to Firebase registry", firebaseError);
+      }
+
+      storeMarketToken(marketSnapshot);
+      navigate(`/market/${encodeURIComponent(trimmedSymbol)}`);
 
     } catch (error) {
       console.error("Slab deployment failed:", error);

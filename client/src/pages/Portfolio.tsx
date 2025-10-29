@@ -1,160 +1,259 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
+import { TokenAvatar } from "@/components/shared/TokenAvatar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Eye, EyeOff, Plus, Copy, Archive, RefreshCw, Lock } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchJupiterTokenByMint, type JupiterToken } from "@/lib/api";
+import { connection } from "@/percolator/connection";
+import { NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { LAMPORTS_PER_SOL, PublicKey, type ParsedAccountData } from "@solana/web3.js";
+import { useQuery } from "@tanstack/react-query";
+import { Copy, Lock, RefreshCw } from "lucide-react";
+import { useMemo } from "react";
 
-interface Wallet {
-  id: string;
+const WRAPPED_SOL_MINT = NATIVE_MINT.toBase58();
+const SOL_FALLBACK_ICON = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png";
+
+interface WalletTokenBalance {
+  mint: string;
+  symbol: string;
   name: string;
-  publicKey: string;
-  balance: string;
-  isPrimary: string;
-  isArchived: string;
-  createdAt: string;
+  icon?: string;
+  uiAmount: number;
+  decimals: number;
+  usdPrice?: number;
+  valueUsd?: number;
+  isNative?: boolean;
 }
+
+const formatCurrency = (
+  value: number | undefined,
+  { decimals, compact = true }: { decimals?: number; compact?: boolean } = {},
+): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  const precision = decimals ?? (value >= 1 ? 2 : 4);
+
+  if (!compact) {
+    return `$${value.toFixed(precision)}`;
+  }
+
+  if (Math.abs(value) >= 1_000_000_000) {
+    return `$${(value / 1_000_000_000).toFixed(precision)}B`;
+  }
+  if (Math.abs(value) >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(precision)}M`;
+  }
+  if (Math.abs(value) >= 1_000) {
+    return `$${(value / 1_000).toFixed(precision)}K`;
+  }
+  return `$${value.toFixed(precision)}`;
+};
+
+const formatTokenAmount = (amount: number, decimals = 4): string => {
+  if (!Number.isFinite(amount)) {
+    return "0";
+  }
+  if (Math.abs(amount) >= 1_000_000) {
+    return amount.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  if (Math.abs(amount) >= 1) {
+    return amount.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  }
+  return amount.toFixed(decimals);
+};
+
+const shortenAddress = (address: string | undefined): string => {
+  if (!address) {
+    return "—";
+  }
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+};
+
+const aggregateTokenAccounts = (accounts: Array<{ account: { data: ParsedAccountData } }>) => {
+  const aggregated = new Map<string, { uiAmount: number; decimals: number }>();
+
+  accounts.forEach(({ account }) => {
+    const data = account.data;
+    if (!data || data.program !== "spl-token" || !data.parsed) {
+      return;
+    }
+
+    const parsed = data.parsed as Record<string, any>;
+    const info = parsed?.info;
+    const mint: string | undefined = info?.mint;
+    const tokenAmount = info?.tokenAmount;
+    const uiAmount = Number(tokenAmount?.uiAmount);
+    const decimals = Number(tokenAmount?.decimals);
+
+    if (!mint || !Number.isFinite(uiAmount) || uiAmount <= 0 || !Number.isFinite(decimals)) {
+      return;
+    }
+
+    const existing = aggregated.get(mint);
+    if (existing) {
+      existing.uiAmount += uiAmount;
+    } else {
+      aggregated.set(mint, { uiAmount, decimals });
+    }
+  });
+
+  return aggregated;
+};
+
+const loadWalletTokenBalances = async (walletAddress: string): Promise<WalletTokenBalance[]> => {
+  const owner = new PublicKey(walletAddress);
+
+  const [solLamports, tokenAccounts] = await Promise.all([
+    connection.getBalance(owner, "confirmed"),
+    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }, "confirmed"),
+  ]);
+
+  const balances: WalletTokenBalance[] = [];
+  const solUiAmount = solLamports / LAMPORTS_PER_SOL;
+
+  balances.push({
+    mint: WRAPPED_SOL_MINT,
+    symbol: "SOL",
+    name: "Solana",
+    icon: SOL_FALLBACK_ICON,
+    uiAmount: solUiAmount,
+    decimals: 9,
+    isNative: true,
+  });
+
+  const aggregatedTokens = aggregateTokenAccounts(tokenAccounts.value as Array<{ account: { data: ParsedAccountData } }>);
+
+  aggregatedTokens.forEach((value, mint) => {
+    balances.push({
+      mint,
+      symbol: mint.slice(0, 4).toUpperCase(),
+      name: mint,
+      uiAmount: value.uiAmount,
+      decimals: value.decimals,
+    });
+  });
+
+  const metadataMints = Array.from(aggregatedTokens.keys());
+  const metadataResults = await Promise.all(
+    metadataMints.map(async (mint) => {
+      try {
+        const token = await fetchJupiterTokenByMint(mint);
+        return { mint, token };
+      } catch (error) {
+        console.warn("Failed to fetch Jupiter metadata for", mint, error);
+        return { mint, token: null as JupiterToken | null };
+      }
+    }),
+  );
+
+  const wrappedSolMeta = await fetchJupiterTokenByMint(WRAPPED_SOL_MINT).catch(() => null);
+  const metadataMap = new Map(metadataResults.map(({ mint, token }) => [mint, token]));
+
+  balances.forEach((entry) => {
+    const meta = entry.isNative ? wrappedSolMeta : metadataMap.get(entry.mint) ?? null;
+    if (meta) {
+      entry.symbol = typeof meta.symbol === "string" && meta.symbol.trim().length > 0 ? meta.symbol : entry.symbol;
+      entry.name = typeof meta.name === "string" && meta.name.trim().length > 0 ? meta.name : entry.name;
+      if (typeof meta.icon === "string" && meta.icon.trim().length > 0) {
+        entry.icon = meta.icon;
+      }
+      if (typeof meta.usdPrice === "number" && Number.isFinite(meta.usdPrice)) {
+        entry.usdPrice = meta.usdPrice;
+        entry.valueUsd = entry.uiAmount * meta.usdPrice;
+      }
+    }
+
+    if (!entry.icon && entry.isNative) {
+      entry.icon = SOL_FALLBACK_ICON;
+    }
+  });
+
+  balances.sort((a, b) => {
+    const valueDiff = (b.valueUsd ?? 0) - (a.valueUsd ?? 0);
+    if (Math.abs(valueDiff) > 0.000001) {
+      return valueDiff;
+    }
+    return b.uiAmount - a.uiAmount;
+  });
+
+  return balances;
+};
 
 export default function Portfolio() {
   const { toast } = useToast();
-  const { isAuthenticated } = useAuth();
-  const [showArchived, setShowArchived] = useState(false);
-  const [visiblePrivateKeys, setVisiblePrivateKeys] = useState<Record<string, string>>({});
-  const [newWalletName, setNewWalletName] = useState("");
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  // Fetch all wallets
-  const { data: wallets = [], isLoading: walletsLoading } = useQuery<Wallet[]>({
-    queryKey: ["/api/wallets"],
+  const walletAddress = user?.wallet?.publicKey ?? null;
+
+  const {
+    data: walletTokens = [],
+    isLoading: balancesLoading,
+    isError: balancesError,
+    refetch: refetchBalances,
+    isFetching: balancesFetching,
+  } = useQuery({
+    queryKey: ["wallet-token-balances", walletAddress],
+    enabled: isAuthenticated && Boolean(walletAddress),
+    queryFn: () => loadWalletTokenBalances(walletAddress!),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 
-  // Create wallet mutation
-  const createWalletMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const response = await apiRequest("POST", "/api/wallets", { name });
-      return await response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
-      setNewWalletName("");
-      setIsCreateDialogOpen(false);
+  const totalUsdValue = useMemo(
+    () =>
+      walletTokens.reduce((sum, token) => {
+        const price = typeof token.usdPrice === "number" && Number.isFinite(token.usdPrice) ? token.usdPrice : 0;
+        const value = token.valueUsd ?? price * token.uiAmount;
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0),
+    [walletTokens],
+  );
+
+  const solEntry = walletTokens.find((token) => token.isNative);
+  const solBalance = solEntry?.uiAmount ?? 0;
+  const tokenCount = walletTokens.filter((token) => !token.isNative).length;
+
+  const handleCopyAddress = async () => {
+    if (!walletAddress || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       toast({
-        title: "Wallet created",
-        description: "Your new wallet has been created successfully.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to create wallet",
-        description: error.message || "An error occurred",
+        title: "Copy failed",
+        description: "Clipboard is unavailable in this environment.",
         variant: "destructive",
       });
-    },
-  });
-
-  // Archive wallet mutation
-  const archiveWalletMutation = useMutation({
-    mutationFn: async ({ walletId, isArchived }: { walletId: string; isArchived: string }) => {
-      const response = await apiRequest("PATCH", `/api/wallets/${walletId}`, { isArchived });
-      return await response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
-      toast({
-        title: "Wallet updated",
-        description: "Wallet status has been updated.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to update wallet",
-        description: error.message || "An error occurred",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Refresh balance mutation
-  const refreshBalanceMutation = useMutation({
-    mutationFn: async (walletId: string) => {
-      const response = await fetch(`/api/wallets/${walletId}/balance`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to refresh balance");
-      }
-      return await response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
-      toast({
-        title: "Balance refreshed",
-        description: "Wallet balance has been updated from the blockchain.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to refresh balance",
-        description: error.message || "An error occurred",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Show/hide private key
-  const togglePrivateKey = async (walletId: string) => {
-    if (visiblePrivateKeys[walletId]) {
-      // Hide private key
-      const newKeys = { ...visiblePrivateKeys };
-      delete newKeys[walletId];
-      setVisiblePrivateKeys(newKeys);
-    } else {
-      // Fetch and show private key
-      try {
-        const response = await fetch(`/api/wallets/${walletId}/export-key`, {
-          credentials: "include",
-        });
-        const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(data.message || "Failed to export key");
-        }
-
-        setVisiblePrivateKeys({
-          ...visiblePrivateKeys,
-          [walletId]: data.privateKey,
-        });
-      } catch (error: any) {
-        toast({
-          title: "Failed to export private key",
-          description: error.message || "An error occurred",
-          variant: "destructive",
-        });
-      }
+      return;
     }
-  };
 
-  // Copy to clipboard
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(walletAddress);
     toast({
-      title: "Copied to clipboard",
-      description: `${label} has been copied to your clipboard.`,
+      title: "Wallet copied",
+      description: "Public key copied to clipboard.",
+      duration: 2000,
     });
   };
 
-  // Filter wallets
-  const displayedWallets = wallets.filter(w => showArchived || w.isArchived === "false");
+  const handleRefreshBalances = () => {
+    if (!balancesLoading) {
+      void refetchBalances();
+    }
+  };
 
-  // Show authentication required if not logged in
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="space-y-4 text-center">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-muted-foreground">Loading account...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-6">
@@ -164,13 +263,10 @@ export default function Portfolio() {
           <p className="text-muted-foreground mb-6">
             You need to be logged in to access your portfolio.
           </p>
-          <Button 
+          <Button
             onClick={() => {
-              // This will trigger the login modal from the TopBar
-              const loginButton = document.querySelector('[data-testid="button-login"]') as HTMLButtonElement;
-              if (loginButton) {
-                loginButton.click();
-              }
+              const loginButton = document.querySelector('[data-testid="button-login"]') as HTMLButtonElement | null;
+              loginButton?.click();
             }}
             className="w-full"
             data-testid="button-login-portfolio"
@@ -182,221 +278,154 @@ export default function Portfolio() {
     );
   }
 
+  if (!walletAddress) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <Card className="max-w-md w-full p-8 text-center">
+          <h1 className="text-2xl font-semibold mb-2 text-foreground">Wallet Not Linked</h1>
+          <p className="text-muted-foreground">
+            Connect a wallet to view your spot balances.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold mb-2" data-testid="heading-portfolio">Portfolio</h1>
-        <p className="text-muted-foreground">Manage your wallets and positions</p>
+        <p className="text-muted-foreground">Track spot holdings across your connected wallet.</p>
       </div>
 
-      <Tabs defaultValue="wallets" className="w-full">
+      <Tabs defaultValue="spot" className="w-full">
         <TabsList className="mb-6" data-testid="tabs-portfolio">
           <TabsTrigger value="spot" data-testid="tab-spot">Spot</TabsTrigger>
-          <TabsTrigger value="wallets" data-testid="tab-wallets">Wallets</TabsTrigger>
           <TabsTrigger value="perpetuals" data-testid="tab-perpetuals">Perpetuals</TabsTrigger>
         </TabsList>
 
-        {/* Spot Tab */}
         <TabsContent value="spot" data-testid="content-spot">
           <Card className="border-card-border bg-card">
-            <CardHeader>
-              <CardTitle>Spot Balances</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-muted-foreground">
-                Total SOL Balance: {wallets.reduce((sum, w) => sum + parseFloat(w.balance || "0"), 0).toFixed(4)} SOL
+            <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardTitle>Spot Balances</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Live SPL token balances fetched directly from the Solana blockchain.
+                </p>
               </div>
-              <Separator className="my-4" />
-              <div className="space-y-2">
-                {displayedWallets.map((wallet) => (
-                  <div key={wallet.id} className="flex items-center justify-between p-3 rounded-md bg-card/50 border">
-                    <div>
-                      <div className="font-medium">{wallet.name}</div>
-                      <div className="text-sm text-muted-foreground font-mono">{wallet.publicKey.slice(0, 8)}...{wallet.publicKey.slice(-8)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono" data-numeric="true">{parseFloat(wallet.balance || "0").toFixed(4)} SOL</div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyAddress}
+                  data-testid="button-copy-wallet"
+                >
+                  <Copy className="w-4 h-4 mr-1" />
+                  Copy Wallet
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefreshBalances}
+                  disabled={balancesLoading || balancesFetching}
+                  data-testid="button-refresh-balances"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1 ${balancesFetching ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Wallet</span>
+                  <span className="font-mono text-sm text-foreground" data-testid="text-wallet-address">
+                    {shortenAddress(walletAddress)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-6 text-sm">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Total Value</div>
+                    <div className="text-lg font-semibold text-foreground" data-numeric="true" data-testid="text-total-value">
+                      {formatCurrency(totalUsdValue)}
                     </div>
                   </div>
-                ))}
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">SOL Balance</div>
+                    <div className="text-lg font-semibold text-foreground" data-numeric="true" data-testid="text-sol-balance">
+                      {formatTokenAmount(solBalance, 5)} SOL
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Tokens</div>
+                    <div className="text-lg font-semibold text-foreground" data-testid="text-token-count">
+                      {tokenCount}
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              <Separator />
+
+              {balancesLoading ? (
+                <div className="space-y-3" data-testid="loading-wallet-balances">
+                  <LoadingSkeleton className="h-16 w-full" count={3} />
+                </div>
+              ) : balancesError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  Failed to load wallet balances. Try refreshing.
+                </div>
+              ) : walletTokens.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  No token balances detected for this wallet.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {walletTokens.map((token) => (
+                    <div
+                      key={`${token.mint}-${token.symbol}`}
+                      className="flex flex-col gap-4 rounded-lg border border-border/60 bg-card/60 p-4 lg:flex-row lg:items-center lg:justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <TokenAvatar
+                          symbol={token.symbol}
+                          name={token.name}
+                          iconUrl={token.icon}
+                          size={40}
+                        />
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{token.symbol}</div>
+                          <div className="text-xs text-muted-foreground">{token.name}</div>
+                        </div>
+                      </div>
+                      <div className="grid w-full grid-cols-1 gap-3 text-right sm:grid-cols-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Amount</div>
+                          <div className="text-sm font-mono text-foreground" data-numeric="true">
+                            {formatTokenAmount(token.uiAmount)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Price</div>
+                          <div className="text-sm font-mono text-foreground" data-numeric="true">
+                            {formatCurrency(token.usdPrice, { compact: false, decimals: token.usdPrice && token.usdPrice < 1 ? 6 : 2 })}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Value</div>
+                          <div className="text-sm font-mono text-foreground" data-numeric="true" data-testid={`text-token-value-${token.mint}`}>
+                            {formatCurrency(token.valueUsd)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Wallets Tab */}
-        <TabsContent value="wallets" data-testid="content-wallets">
-          <Card className="border-card-border bg-card">
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
-              <CardTitle>Your Wallets</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowArchived(!showArchived)}
-                    data-testid="button-toggle-archived"
-                  >
-                    {showArchived ? "Hide Archived" : "Show Archived"}
-                  </Button>
-                  <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button size="sm" data-testid="button-create-wallet">
-                        <Plus className="w-4 h-4 mr-1" />
-                        Create Wallet
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent data-testid="dialog-create-wallet">
-                      <DialogHeader>
-                        <DialogTitle>Create New Wallet</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 pt-4">
-                        <div>
-                          <Label htmlFor="wallet-name">Wallet Name</Label>
-                          <Input
-                            id="wallet-name"
-                            placeholder="e.g., Trading Wallet"
-                            value={newWalletName}
-                            onChange={(e) => setNewWalletName(e.target.value)}
-                            data-testid="input-wallet-name"
-                          />
-                        </div>
-                        <Button
-                          onClick={() => createWalletMutation.mutate(newWalletName)}
-                          disabled={!newWalletName || createWalletMutation.isPending}
-                          className="w-full"
-                          data-testid="button-confirm-create"
-                        >
-                          {createWalletMutation.isPending ? "Creating..." : "Create Wallet"}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {walletsLoading ? (
-                  <div className="text-center py-8 text-muted-foreground">Loading wallets...</div>
-                ) : displayedWallets.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    {showArchived ? "No wallets found" : "No active wallets"}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {displayedWallets.map((wallet) => (
-                      <Card key={wallet.id} className={wallet.isArchived === "true" ? "opacity-60" : ""} data-testid={`card-wallet-${wallet.id}`}>
-                        <CardContent className="pt-6">
-                          <div className="flex items-start justify-between mb-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="font-medium" data-testid={`text-wallet-name-${wallet.id}`}>{wallet.name}</span>
-                                {wallet.isPrimary === "true" && (
-                                  <Badge variant="default" data-testid={`badge-primary-${wallet.id}`}>Primary</Badge>
-                                )}
-                                {wallet.isArchived === "true" && (
-                                  <Badge variant="secondary" data-testid={`badge-archived-${wallet.id}`}>Archived</Badge>
-                                )}
-                              </div>
-                              <div className="space-y-2 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-muted-foreground">Balance:</span>
-                                  <span className="font-mono" data-numeric="true" data-testid={`text-balance-${wallet.id}`}>
-                                    {parseFloat(wallet.balance || "0").toFixed(4)} SOL
-                                  </span>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => refreshBalanceMutation.mutate(wallet.id)}
-                                    disabled={refreshBalanceMutation.isPending}
-                                    data-testid={`button-refresh-${wallet.id}`}
-                                  >
-                                    <RefreshCw className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-muted-foreground">Public Key:</span>
-                                  <code className="text-xs font-mono" data-testid={`text-publickey-${wallet.id}`}>
-                                    {wallet.publicKey}
-                                  </code>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => copyToClipboard(wallet.publicKey, "Public key")}
-                                    data-testid={`button-copy-publickey-${wallet.id}`}
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                                {visiblePrivateKeys[wallet.id] && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground">Private Key:</span>
-                                    <code className="text-xs font-mono text-destructive" data-testid={`text-privatekey-${wallet.id}`}>
-                                      {visiblePrivateKeys[wallet.id]}
-                                    </code>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={() => copyToClipboard(visiblePrivateKeys[wallet.id], "Private key")}
-                                      data-testid={`button-copy-privatekey-${wallet.id}`}
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => togglePrivateKey(wallet.id)}
-                              data-testid={`button-toggle-privatekey-${wallet.id}`}
-                            >
-                              {visiblePrivateKeys[wallet.id] ? (
-                                <>
-                                  <EyeOff className="w-4 h-4 mr-1" />
-                                  Hide Private Key
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="w-4 h-4 mr-1" />
-                                  Show Private Key
-                                </>
-                              )}
-                            </Button>
-                            {wallet.isPrimary !== "true" && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  archiveWalletMutation.mutate({
-                                    walletId: wallet.id,
-                                    isArchived: wallet.isArchived === "true" ? "false" : "true",
-                                  })
-                                }
-                                disabled={archiveWalletMutation.isPending}
-                                data-testid={`button-archive-${wallet.id}`}
-                              >
-                                <Archive className="w-4 h-4 mr-1" />
-                                {wallet.isArchived === "true" ? "Unarchive" : "Archive"}
-                              </Button>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-        {/* Perpetuals Tab */}
         <TabsContent value="perpetuals" data-testid="content-perpetuals">
           <Card className="border-card-border bg-card">
             <CardHeader>

@@ -12,6 +12,7 @@ import {
   Wallet
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 
 interface CryptoPrice {
   symbol: string;
@@ -38,6 +39,7 @@ interface PnLData {
 }
 
 export function BottomNav() {
+  const [, setLocation] = useLocation();
   // Fetch real-time prices from server
   const { data: pricesData, isLoading: pricesLoading, error: pricesError } = useCryptoPrices();
 
@@ -80,7 +82,6 @@ export function BottomNav() {
   const [isResizing, setIsResizing] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [activeTab, setActiveTab] = useState<"all" | "manager" | "trades">("all");
-  const [newWalletAddress, setNewWalletAddress] = useState("");
 
   // Add body class when wallet tracker is open
   useEffect(() => {
@@ -105,41 +106,14 @@ export function BottomNav() {
     ]
   });
 
-  const [walletTrackerData, setWalletTrackerData] = useState([
-    {
-      id: "1",
-      address: "0x742d...8f3a",
-      name: "Whale Tracker",
-      recentTrades: [
-        { token: "ETH", action: "Bought", amount: "50.2", price: "$3,846", time: "2m ago" },
-        { token: "SOL", action: "Sold", amount: "1,200", price: "$186.09", time: "5m ago" }
-      ],
-      totalValue: "$2.4M",
-      pnl: "+12.5%"
-    },
-    {
-      id: "2",
-      address: "0x9f1a...7b2c",
-      name: "DeFi Master",
-      recentTrades: [
-        { token: "BTC", action: "Bought", amount: "2.1", price: "$108,100", time: "1m ago" },
-        { token: "ETH", action: "Bought", amount: "25.0", price: "$3,846", time: "3m ago" }
-      ],
-      totalValue: "$1.8M",
-      pnl: "+8.2%"
-    },
-    {
-      id: "3",
-      address: "0x3c5e...9d1f",
-      name: "NFT Collector",
-      recentTrades: [
-        { token: "SOL", action: "Bought", amount: "500", price: "$186.09", time: "4m ago" },
-        { token: "ETH", action: "Sold", amount: "15.0", price: "$3,846", time: "7m ago" }
-      ],
-      totalValue: "$950K",
-      pnl: "-2.1%"
-    }
-  ]);
+  const renderComingSoon = (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center space-y-1">
+        <p className="text-sm font-semibold text-foreground">Coming soon</p>
+        <p className="text-xs text-muted-foreground">Wallet insights will be available shortly.</p>
+      </div>
+    </div>
+  );
 
   const formatPrice = (price: number, isLoading: boolean = false) => {
     if (isLoading || price === 0) {
@@ -235,7 +209,10 @@ export function BottomNav() {
             </button>
 
 
-            <button className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+            <button
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setLocation("/discover")}
+            >
               <Compass className="w-4 h-4" />
               <span className="text-xs">Discover</span>
             </button>
@@ -512,103 +489,7 @@ export function BottomNav() {
             </div>
 
             <div className="p-3 h-full overflow-y-auto bg-gradient-to-b from-transparent to-card/20">
-              {activeTab === "all" && (
-                <div className="space-y-1.5">
-                  {walletTrackerData.map((wallet) => (
-                    <Card key={wallet.id} className="p-2 bg-card/50 border-border/30 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-xs text-foreground">{wallet.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{wallet.address}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-mono text-foreground">{wallet.totalValue}</p>
-                            <p className={`text-[10px] ${wallet.pnl.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>
-                              {wallet.pnl}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground">Recent Trades</p>
-                          {wallet.recentTrades.map((trade, index) => (
-                            <div key={index} className="flex items-center justify-between text-[10px]">
-                              <div className="flex items-center gap-1">
-                                <span className={`px-1 py-0.5 rounded text-[9px] ${trade.action === 'Bought'
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                                  }`}>
-                                  {trade.action}
-                                </span>
-                                <span className="font-medium">{trade.token}</span>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-mono text-[9px]">{trade.amount}</p>
-                                <p className="text-muted-foreground text-[9px]">{trade.price}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
-
-              {activeTab === "manager" && (
-                <div className="space-y-3">
-                  <div className="p-3 bg-muted/10 border border-border/20 rounded-lg shadow-sm">
-                    <h3 className="text-sm font-medium mb-2">Add New Wallet</h3>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        placeholder="Enter wallet address..."
-                        value={newWalletAddress}
-                        onChange={(e) => setNewWalletAddress(e.target.value)}
-                        className="w-full px-2 py-1 text-xs bg-background border border-border rounded"
-                      />
-                      <button
-                        onClick={() => {
-                          if (newWalletAddress.trim()) {
-                            // Add wallet logic here
-                            setNewWalletAddress("");
-                          }
-                        }}
-                        className="w-full px-3 py-1 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90"
-                      >
-                        Add Wallet
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <h3 className="text-sm font-medium">Tracked Wallets</h3>
-                    {walletTrackerData.map((wallet) => (
-                      <Card key={wallet.id} className="p-2 bg-card/50 border-border/30 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-xs text-foreground">{wallet.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{wallet.address}</p>
-                          </div>
-                          <button className="text-red-400 hover:text-red-300 text-xs">
-                            Remove
-                          </button>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "trades" && (
-                <div className="space-y-1.5">
-                  <div className="text-center py-8">
-                    <p className="text-sm text-muted-foreground">Live trades will appear here</p>
-                    <p className="text-xs text-muted-foreground mt-1">Coming soon...</p>
-                  </div>
-                </div>
-              )}
+              {renderComingSoon}
             </div>
           </motion.div>
         )}
