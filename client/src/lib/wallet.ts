@@ -10,6 +10,9 @@ export interface WalletAdapter {
   isPhantom?: boolean;
   connect: () => Promise<{ publicKey: SolanaPublicKey }>;
   disconnect: () => Promise<void>;
+  // Optional signing methods exposed by browser wallets (Phantom, Solflare, etc.)
+  signTransaction?: (transaction: any) => Promise<any>;
+  signAllTransactions?: (transactions: any[]) => Promise<any[]>;
 }
 
 declare global {
@@ -30,9 +33,9 @@ export class WalletService {
       name: "phantom" | "solana";
       adapter: WalletAdapter | undefined;
     }> = [
-      { name: "phantom", adapter: window.phantom?.solana },
-      { name: "solana", adapter: window.solana },
-    ];
+        { name: "phantom", adapter: window.phantom?.solana },
+        { name: "solana", adapter: window.solana },
+      ];
 
     const sortedAdapters =
       preferredWallet === "phantom"

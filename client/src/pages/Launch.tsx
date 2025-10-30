@@ -64,23 +64,8 @@ function makePureWalletAdapter(userWallet: any) {
   };
 }
 
-// Browser wallet types
-declare global {
-  interface Window {
-    phantom?: {
-      solana?: {
-        publicKey: any;
-        signTransaction: (transaction: any) => Promise<any>;
-        connect: () => Promise<any>;
-      };
-    };
-    solana?: {
-      publicKey: any;
-      signTransaction: (transaction: any) => Promise<any>;
-      connect: () => Promise<any>;
-    };
-  }
-}
+// Note: global Window wallet adapter types are declared in `client/src/lib/wallet.ts`.
+// Avoid re-declaring them here to prevent duplicate-type conflicts.
 
 const steps = [
   { number: 1, title: "Basics", subtitle: "Name, symbol, description" },
@@ -217,7 +202,7 @@ export default function Launch() {
                 : lamports / LAMPORTS_PER_SOL;
 
             setMinFundraisingRequirement({ lamports, sol: solValue });
-            setFormData(prev => {
+            setFormData((prev) => {
               const previousAmount = Number.isFinite(prev.deployment.creatorSolAmount)
                 ? prev.deployment.creatorSolAmount
                 : 0;

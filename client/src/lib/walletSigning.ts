@@ -1,5 +1,5 @@
-import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { AnchorProvider } from '@coral-xyz/anchor';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { Buffer } from './bufferPolyfill';
 
 /**
@@ -22,10 +22,10 @@ export class WalletSigningService {
     try {
       // Serialize the transaction
       const serialized = transaction.serialize({ requireAllSignatures: false });
-      
+
       // Convert to base64 using Buffer
       const transactionBase64 = Buffer.from(serialized).toString('base64');
-      
+
       // Send to backend for signing
       const response = await fetch('/api/wallet/sign-transaction', {
         method: 'POST',
@@ -43,7 +43,7 @@ export class WalletSigningService {
       }
 
       const { signedTransaction } = await response.json();
-      
+
       // Convert base64 back to Buffer and deserialize
       return Transaction.from(Buffer.from(signedTransaction, 'base64'));
     } catch (error) {
@@ -57,12 +57,12 @@ export class WalletSigningService {
    */
   async signAllTransactions(transactions: Transaction[]): Promise<Transaction[]> {
     const signedTransactions: Transaction[] = [];
-    
+
     for (const transaction of transactions) {
       const signed = await this.signTransaction(transaction);
       signedTransactions.push(signed);
     }
-    
+
     return signedTransactions;
   }
 
@@ -82,7 +82,8 @@ export class WalletSigningService {
    */
   createProvider() {
     const wallet = this.createWallet();
-    return new AnchorProvider(this.connection, wallet, {
+    // AnchorProvider expects a Wallet type with generics; cast to any to satisfy type checks
+    return new AnchorProvider(this.connection, wallet as any, {
       commitment: 'confirmed',
       preflightCommitment: 'confirmed'
     });
@@ -93,7 +94,7 @@ export class WalletSigningService {
  * Create a wallet signing service for a user
  */
 export function createWalletSigningService(
-  connection: Connection, 
+  connection: Connection,
   userPublicKey: PublicKey
 ): WalletSigningService {
   return new WalletSigningService(connection, userPublicKey);
