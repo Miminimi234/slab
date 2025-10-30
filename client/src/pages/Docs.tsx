@@ -41,7 +41,7 @@ Learn how to launch leverage markets, deploy token pools, and trade with amplifi
 Slab transforms any token — even those born from bonding curves — into a live, tradeable leverage market.
 Creators, contributors, and traders come together through automated liquidity mechanics to unlock a new kind of decentralized margin system built directly into the Solana network.
 
-⚡ What is Slab?
+ What is Slab?
 
 Slab is a decentralized leverage trading protocol that lets users trade memecoins and emerging Solana tokens with leverage, powered by on-chain lending pools called Slabs.
 
@@ -53,8 +53,8 @@ Traders borrow from the Slab pool to multiply their trading position — gaining
 
 Every trade, liquidation, and payout is handled automatically by the protocol, ensuring instant settlement and full transparency.
 
-🧭 Core Features
-🏗️ Slab Markets
+ Core Features
+ Slab Markets
 
 Each token on Solana can host a Slab Market, an autonomous liquidity pool that powers leveraged trading.
 
@@ -64,7 +64,7 @@ If not → you can start the first Slab, bootstrap liquidity, and earn from it.
 
 All pool economics — lending, fees, and liquidation — are automated by Slab smart contracts.
 
-🌊 Trenches Browser
+ Trenches Browser
 
 The Trenches Browser is your real-time explorer for the Solana ecosystem:
 
@@ -74,7 +74,7 @@ See tokens as they’re created, about to migrate, or have completed migration.
 
 Slab integrates seamlessly with these tokens, allowing users to open markets the moment a token goes live.
 
-🚀 Launchpad Integration
+ Launchpad Integration
 
 Slab doubles as a launchpad, enabling users to:
 
@@ -84,7 +84,7 @@ Automatically generate liquidity and activate Slab compatibility.
 
 Transition from launch → liquidity → leverage in one flow.
 
-🔍 Discover Page
+ Discover Page
 
 A real-time analytics layer that showcases:
 
@@ -94,12 +94,12 @@ Live trader and pool metrics, with sortable and filterable insights.
 
 Direct entry points to start trading or open a Slab instantly.
 
-🧱 Slab Ecosystem Roles
+ Slab Ecosystem Roles
 Role	Description	Rewards
 Creator	Starts a Slab Market by opening and funding a pool.	Earns share of trading and liquidation fees.
 Contributor	Provides additional liquidity to an existing Slab.	Earns passive yield from protocol fees.
 Trader	Borrows from the Slab pool to gain leveraged exposure.	Gains amplified returns (or liquidations).
-💡 Why Slab?
+ Why Slab?
 
 Composability – Integrates directly with bonding curve tokens and live Solana launches.
 
@@ -109,7 +109,7 @@ Scalability – Designed for memecoins and high-frequency market creation.
 
 Accessibility – Anyone can launch a market on any token.
 
-📘 Next Steps
+ Next Steps
 
 Ready to dive in?
 
@@ -127,7 +127,7 @@ Ready to dive in?
                             without intermediaries.
                         </p>
 
-                        <h3>🧩 System Components</h3>
+                        <h3> System Components</h3>
                         <h4>1. Slab Pool (DLMM-Powered)</h4>
                         <p>
                             Each Slab Market runs on a Meteora DLMM pool, managing concentrated liquidity for a given token pair.
@@ -168,7 +168,7 @@ Ready to dive in?
                             </tbody>
                         </table>
 
-                        <h3>🪄 Lifecycle Example</h3>
+                        <h3> Lifecycle Example</h3>
                         <p>Example flow of creating a BONK/SOL Slab, trading, liquidation and vault coverage.</p>
 
                         <div className="flex items-center gap-4">
@@ -178,10 +178,10 @@ Ready to dive in?
                     </section>
 
                     <section id="creating" className="prose max-w-none">
-                        <h2>🚀 Creating Your First Slab</h2>
+                        <h2> Creating Your First Slab</h2>
                         <p>Launch a Leverage Market in Minutes</p>
 
-                        <h3>🧭 Step-by-Step: Launching a Slab</h3>
+                        <h3> Step-by-Step: Launching a Slab</h3>
                         <ol>
                             <li>Enter the Token Mint Address</li>
                             <li>Select Pool Type (Meteora DLMM)</li>
@@ -190,10 +190,10 @@ Ready to dive in?
                             <li>Launch the Slab</li>
                         </ol>
 
-                        <h4>⚙️ Managing Your Slab</h4>
+                        <h4> Managing Your Slab</h4>
                         <p>View analytics, extend duration, withdraw or close when lifecycle ends.</p>
 
-                        <h4>🧠 Tip</h4>
+                        <h4> Tip</h4>
                         <p>Use moderate lend ratios (40–70%) for new or low-volume tokens.</p>
 
                         <div className="flex items-center gap-4">
@@ -203,10 +203,10 @@ Ready to dive in?
                     </section>
 
                     <section id="trading" className="prose max-w-none">
-                        <h2>💹 Trading on a Slab</h2>
+                        <h2> Trading on a Slab</h2>
                         <p>Leverage Any Token. Instantly.</p>
 
-                        <h3>🧭 Step-by-Step: Opening a Trade</h3>
+                        <h3> Step-by-Step: Opening a Trade</h3>
                         <ol>
                             <li>Select a Slab</li>
                             <li>Choose Order Type (Market / Limit)</li>
@@ -216,7 +216,7 @@ Ready to dive in?
                             <li>Place Order</li>
                         </ol>
 
-                        <h4>⚙️ Position Lifecycle</h4>
+                        <h4> Position Lifecycle</h4>
                         <ol>
                             <li>Entry</li>
                             <li>Monitoring</li>
@@ -224,7 +224,7 @@ Ready to dive in?
                             <li>Settlement</li>
                         </ol>
 
-                        <h4>⚖️ Risk Note</h4>
+                        <h4> Risk Note</h4>
                         <p>Leverage amplifies both gains and losses. Trade responsibly.</p>
 
                         <div className="flex items-center gap-4">
@@ -234,9 +234,9 @@ Ready to dive in?
                     </section>
 
                     <section id="trenches" className="prose max-w-none">
-                        <h2>🌋 Trenches Browser</h2>
+                        <h2> Trenches Browser</h2>
                         <p>Explore Every Token As It’s Born — a real-time scanner that tracks tokens across launch platforms.</p>
-                        <h4>🧠 What the Trenches Browser Does</h4>
+                        <h4> What the Trenches Browser Does</h4>
                         <p>Classifies tokens into New Pairs, Final Stretch, and Migrated stages and surfaces metrics and links to create Slabs.</p>
 
                         <div className="flex items-center gap-4">
@@ -246,9 +246,9 @@ Ready to dive in?
                     </section>
 
                     <section id="launchpad" className="prose max-w-none">
-                        <h2>🚀 Launching Tokens with Slab Launchpad</h2>
+                        <h2> Launching Tokens with Slab Launchpad</h2>
                         <p>Deploy. Seed. Leverage. All in One Place.</p>
-                        <h4>🧭 Step-by-Step: Launching Your Token</h4>
+                        <h4> Step-by-Step: Launching Your Token</h4>
                         <ol>
                             <li>Configure Token Details</li>
                             <li>Select Pool Type (Meteora DLMM)</li>
@@ -264,12 +264,12 @@ Ready to dive in?
                     </section>
 
                     <section id="discover" className="prose max-w-none">
-                        <h2>📈 Discover Page</h2>
+                        <h2> Discover Page</h2>
                         <p>
                             Monitor the pulse of Slab’s leverage markets — top tokens, active Slabs, and real-time performance data.
                         </p>
 
-                        <h4>⚡ Overview</h4>
+                        <h4> Overview</h4>
                         <p>Top trading tokens by volume, volatility and open interest. Direct actions to trade or create a Slab.</p>
 
                         <div className="pt-6 border-t border-border" />

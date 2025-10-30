@@ -1,6 +1,5 @@
 ﻿import marketsData from "@/mocks/markets.json";
 import type { Market, OrderBook, Trade } from "@shared/schema";
-import jupiterClient from "./jupiterClient";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -326,53 +325,33 @@ export function subscribeToJupiterTopTrendingTokens(
 }
 
 export async function fetchJupiterTokenByMint(mintAddress: string): Promise<JupiterToken | null> {
-  // Prefer server-side GMGN v3 lookup (more reliable for token metadata). If
-  // GMGN returns a matching coin, map it to our token shape and return it.
+  // Always resolve token metadata via the server GMGN lookup route.
+  // Client-only tokenlist lookups are disabled to avoid CORS/anti-bot flakiness
+  // and to ensure a single reliable source for token-by-mint metadata.
   try {
-    const gmgnResp = await fetch(`/api/gmgn/lookup?q=${encodeURIComponent(mintAddress)}&chain=sol`);
-    if (gmgnResp.ok) {
-      const body = await gmgnResp.json();
-      const coins = body?.data?.coins ?? [];
-      if (Array.isArray(coins) && coins.length > 0) {
-        const c = coins[0];
-        return {
-          id: c.address ?? c.id ?? String(mintAddress),
-          name: c.name ?? c.symbol ?? String(mintAddress),
-          symbol: c.symbol ?? c.name ?? String(mintAddress),
-          decimals: 6,
-          icon: c.logo ?? undefined,
-          usdPrice: Number(c.price) || undefined,
-          holderCount: typeof c.holder_count === 'number' ? c.holder_count : undefined,
-          liquidity: Number(c.liquidity) || undefined,
-          mcap: Number(c.market_cap ?? c.mcp) || undefined,
-          updatedAt: undefined,
-        } as JupiterToken;
-      }
+    const resp = await fetch(`/api/gmgn/lookup?q=${encodeURIComponent(mintAddress)}&chain=sol`);
+    if (!resp.ok) {
+      console.error(`fetchJupiterTokenByMint: gmgn lookup failed (status ${resp.status})`);
+      return null;
     }
-  } catch (err) {
-    console.warn("fetchJupiterTokenByMint: gmgn lookup failed, falling back to other sources", err);
-  }
 
-  // Fallback to client-side Jupiter tokenlist
-  try {
-    const direct = await jupiterClient.fetchJupiterTokenByMintDirect(mintAddress);
-    if (direct) return direct;
-  } catch (err) {
-    console.warn("fetchJupiterTokenByMint: client jupiter lookup failed", err);
-  }
+    const body = await resp.json();
+    const coins = body?.data?.coins ?? [];
+    if (!Array.isArray(coins) || coins.length === 0) return null;
 
-  // Final fallback: server-side Jupiter search proxy
-  try {
-    const response = await fetch(`/api/jupiter/search?query=${encodeURIComponent(mintAddress)}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Jupiter token from server: ${response.status}`);
-    }
-    const data = await response.json();
-    const tokens = data.tokens || [];
-
-    // Find the exact match by mint address (id)
-    const token = tokens.find((t: JupiterToken) => (t.id || "").toLowerCase() === (mintAddress || "").toLowerCase());
-    return token || null;
+    const c = coins[0];
+    return {
+      id: c.address ?? c.id ?? String(mintAddress),
+      name: c.name ?? c.symbol ?? String(mintAddress),
+      symbol: c.symbol ?? c.name ?? String(mintAddress),
+      decimals: 6,
+      icon: c.logo ?? undefined,
+      usdPrice: Number(c.price) || undefined,
+      holderCount: typeof c.holder_count === 'number' ? c.holder_count : undefined,
+      liquidity: Number(c.liquidity) || undefined,
+      mcap: Number(c.market_cap ?? c.mcp) || undefined,
+      updatedAt: undefined,
+    } as JupiterToken;
   } catch (error) {
     console.error("fetchJupiterTokenByMint error:", error);
     return null;
