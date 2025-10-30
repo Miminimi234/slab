@@ -1,4 +1,6 @@
-const JUPITER_ULTRA_BASE_URL = "https://lite-api.jup.ag/ultra/v1";
+// Route Jupiter Ultra calls through our server proxy to avoid CORS preflight failures
+// and to centralize rate-limit handling in production.
+const JUPITER_ULTRA_BASE_URL = "/api/jupiter/ultra";
 
 export type JupiterUltraSwapMode = "ExactIn" | "ExactOut";
 
@@ -162,7 +164,6 @@ export async function getJupiterUltraOrder(
 
   return fetchJson<JupiterUltraOrderResponse>(`${JUPITER_ULTRA_BASE_URL}/order?${searchParams.toString()}`, {
     signal,
-    // Jupiter handles CORS with GET requests; we omit credentials.
     method: "GET",
   });
 }

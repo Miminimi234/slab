@@ -574,6 +574,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Jupiter Ultra proxy - forward order (GET) and execute (POST) through our server
+  // This avoids cross-origin POST preflight issues and centralizes retries/rate-limit handling.
+  const JUPITER_ULTRA_BASE = "https://lite-api.jup.ag/ultra/v1";
+  const DEFAULT_ULTRA_TIMEOUT_MS = 15000;
+
+  app.get("/api/jupiter/ultra/order", async (req, res) => {
+    try {
+      const query = req.url.split('?')[1] ?? '';
+      const url = `${JUPITER_ULTRA_BASE}/order${query ? `?${query}` : ''}`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), DEFAULT_ULTRA_TIMEOUT_MS);
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "slab-trade/1.0 (+https://slab.trade)",
+          Accept: "application/json",
+        },
+      });
+      clearTimeout(timeout);
+
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        res.status(response.status).json(json);
+      } catch {
+        res.status(response.status).send(text);
+      }
+    } catch (err) {
+      console.error("/api/jupiter/ultra/order proxy error:", err);
+      if ((err as any)?.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'Jupiter Ultra request timed out' });
+      }
+      res.status(502).json({ success: false, error: (err instanceof Error) ? err.message : 'Proxy error' });
+    }
+  });
+
+  app.post("/api/jupiter/ultra/execute", async (req, res) => {
+    try {
+      const url = `${JUPITER_ULTRA_BASE}/execute`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), DEFAULT_ULTRA_TIMEOUT_MS);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          "User-Agent": "slab-trade/1.0 (+https://slab.trade)",
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(req.body),
+      });
+      clearTimeout(timeout);
+
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        res.status(response.status).json(json);
+      } catch {
+        res.status(response.status).send(text);
+      }
+    } catch (err) {
+      console.error("/api/jupiter/ultra/execute proxy error:", err);
+      if ((err as any)?.name === 'AbortError') {
+        return res.status(504).json({ success: false, error: 'Jupiter Ultra execute timed out' });
+      }
+      res.status(502).json({ success: false, error: (err instanceof Error) ? err.message : 'Proxy error' });
+    }
+  });
+
   // Jupiter top traded tokens (cached snapshot)
   app.get("/api/jupiter/top-trending", (_req, res) => {
     res.json(jupiterTopTrendingService.getSnapshot());
