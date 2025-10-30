@@ -14,10 +14,28 @@ const JUPITER_TOKEN_LIST_URLS = [
     "https://raw.githubusercontent.com/jup-ag/token-list/main/jupiter.tokenlist.json",
 ];
 
-async function tryFetchJson(url: string) {
-    const res = await fetch(url, { cache: "no-cache" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+async function delay(ms: number) {
+    return new Promise((res) => setTimeout(res, ms));
+}
+
+async function tryFetchJson(url: string, attempts = 3, backoff = 300) {
+    let lastErr: any = null;
+    for (let i = 0; i < attempts; i++) {
+        try {
+            const res = await fetch(url, { cache: "no-cache" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        } catch (err) {
+            lastErr = err;
+            // exponential-ish backoff
+            const wait = backoff * Math.pow(2, i);
+            // eslint-disable-next-line no-console
+            console.warn(`jupiterClient: fetch attempt ${i + 1} failed for ${url}, retrying in ${wait}ms`, err);
+            await delay(wait);
+            continue;
+        }
+    }
+    throw lastErr;
 }
 
 export async function fetchJupiterTokensDirect(): Promise<JupiterToken[]> {

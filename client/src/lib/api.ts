@@ -326,12 +326,30 @@ export function subscribeToJupiterTopTrendingTokens(
 }
 
 export async function fetchJupiterTokenByMint(mintAddress: string): Promise<JupiterToken | null> {
-  // Fully client-side: resolve token metadata by mint using public Jupiter tokenlists/cache
+  // Try client-side first (directly to public jupiter tokenlists). If that fails
+  // or returns no result, fall back to the backend proxy endpoint so we still
+  // resolve tokens in environments where direct calls are blocked.
   try {
     const direct = await jupiterClient.fetchJupiterTokenByMintDirect(mintAddress);
-    return direct;
+    if (direct) return direct;
+  } catch (err) {
+    console.warn("fetchJupiterTokenByMint: client lookup failed, falling back to server", err);
+  }
+
+  // Fallback to server proxy search
+  try {
+    const response = await fetch(`/api/jupiter/search?query=${encodeURIComponent(mintAddress)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Jupiter token from server: ${response.status}`);
+    }
+    const data = await response.json();
+    const tokens = data.tokens || [];
+
+    // Find the exact match by mint address (id)
+    const token = tokens.find((t: JupiterToken) => (t.id || "").toLowerCase() === (mintAddress || "").toLowerCase());
+    return token || null;
   } catch (error) {
-    console.error("fetchJupiterTokenByMint (client) error:", error);
+    console.error("fetchJupiterTokenByMint error:", error);
     return null;
   }
 }
