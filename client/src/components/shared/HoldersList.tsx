@@ -56,8 +56,8 @@ export function HoldersList({
                         const address = (h as any).address || (h as any).account_address || "";
                         return (
                             <Card key={address || i} className="p-3 bg-background/60 border-primary/10">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="flex flex-col items-start gap-2">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                    <div className="flex flex-col items-start gap-2 w-full sm:w-auto">
                                         <div>
                                             <a
                                                 href={address ? `https://solscan.io/account/${address}` : "#"}
@@ -69,7 +69,7 @@ export function HoldersList({
                                             </a>
                                         </div>
 
-                                        <div className="w-full min-w-[120px]">
+                                        <div className="w-full sm:min-w-[120px]">
                                             <div className="w-full bg-border rounded-full h-1 overflow-hidden" title={`Remaining of buy: ${pctDisplay}`}>
                                                 <div
                                                     className="h-1 bg-primary"
@@ -79,8 +79,7 @@ export function HoldersList({
                                             <div className="text-[10px] text-muted-foreground mt-1">{pctDisplay}</div>
                                         </div>
                                     </div>
-
-                                    <div className="flex-1 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground min-w-0">
                                         <div>
                                             <div className="text-[10px]">Bought</div>
                                             <div className="font-mono text-foreground">{formatNumber(buyAmount)}</div>
@@ -105,7 +104,7 @@ export function HoldersList({
                                         </div>
                                     </div>
 
-                                    <div className="text-right min-w-[80px]">
+                                    <div className="text-right sm:min-w-[80px] mt-2 sm:mt-0">
                                         <div className="text-[10px] text-muted-foreground">Remaining</div>
                                         <div className="font-mono text-foreground">{formatNumber(Number(h.amount_cur ?? h.balance ?? 0))}</div>
                                         {tokenPrice && Number.isFinite(tokenPrice) ? (

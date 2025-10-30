@@ -1714,7 +1714,7 @@ export default function Market() {
                   value="spot"
                   className="mt-0 h-full text-muted-foreground text-xs flex items-center justify-center"
                 >
-                  <Card className="w-full max-w-sm border-primary/20 bg-background/80 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+                  <Card className="w-full border-primary/20 bg-background/80 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
                     <div className="px-4 py-5 space-y-5">
                       <div className="space-y-3">
                         <div className="text-[10px] uppercase font-semibold text-muted-foreground">
@@ -1727,7 +1727,7 @@ export default function Market() {
                               <div className="text-xs font-semibold text-foreground">{sellingSymbol}</div>
                             </div>
                           </div>
-                          <div className="flex-1 min-w-[150px] text-right">
+                          <div className="flex-1 min-w-0 text-right">
                             <input
                               type="text"
                               inputMode="decimal"
@@ -1767,7 +1767,7 @@ export default function Market() {
                               <div className="text-xs font-semibold text-foreground">{buyingSymbol}</div>
                             </div>
                           </div>
-                          <div className="flex-1 min-w-[150px] text-right">
+                          <div className="flex-1 min-w-0 text-right">
                             <input
                               type="text"
                               inputMode="decimal"
