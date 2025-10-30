@@ -326,17 +326,42 @@ export function subscribeToJupiterTopTrendingTokens(
 }
 
 export async function fetchJupiterTokenByMint(mintAddress: string): Promise<JupiterToken | null> {
-  // Try client-side first (directly to public jupiter tokenlists). If that fails
-  // or returns no result, fall back to the backend proxy endpoint so we still
-  // resolve tokens in environments where direct calls are blocked.
+  // Prefer server-side GMGN v3 lookup (more reliable for token metadata). If
+  // GMGN returns a matching coin, map it to our token shape and return it.
+  try {
+    const gmgnResp = await fetch(`/api/gmgn/lookup?q=${encodeURIComponent(mintAddress)}&chain=sol`);
+    if (gmgnResp.ok) {
+      const body = await gmgnResp.json();
+      const coins = body?.data?.coins ?? [];
+      if (Array.isArray(coins) && coins.length > 0) {
+        const c = coins[0];
+        return {
+          id: c.address ?? c.id ?? String(mintAddress),
+          name: c.name ?? c.symbol ?? String(mintAddress),
+          symbol: c.symbol ?? c.name ?? String(mintAddress),
+          decimals: 6,
+          icon: c.logo ?? undefined,
+          usdPrice: Number(c.price) || undefined,
+          holderCount: typeof c.holder_count === 'number' ? c.holder_count : undefined,
+          liquidity: Number(c.liquidity) || undefined,
+          mcap: Number(c.market_cap ?? c.mcp) || undefined,
+          updatedAt: undefined,
+        } as JupiterToken;
+      }
+    }
+  } catch (err) {
+    console.warn("fetchJupiterTokenByMint: gmgn lookup failed, falling back to other sources", err);
+  }
+
+  // Fallback to client-side Jupiter tokenlist
   try {
     const direct = await jupiterClient.fetchJupiterTokenByMintDirect(mintAddress);
     if (direct) return direct;
   } catch (err) {
-    console.warn("fetchJupiterTokenByMint: client lookup failed, falling back to server", err);
+    console.warn("fetchJupiterTokenByMint: client jupiter lookup failed", err);
   }
 
-  // Fallback to server proxy search
+  // Final fallback: server-side Jupiter search proxy
   try {
     const response = await fetch(`/api/jupiter/search?query=${encodeURIComponent(mintAddress)}`);
     if (!response.ok) {

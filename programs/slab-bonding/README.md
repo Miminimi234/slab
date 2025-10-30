@@ -4,13 +4,13 @@ A Solana program that implements bonding curve mechanics for token launches with
 
 ## Features
 
-### 🎯 Bonding Curve Mechanics
+###  Bonding Curve Mechanics
 - **Linear price increase** as more tokens are bought
 - **4% total tax** during bonding phase (2% creator + 1% protocol + 2% seed vault)
 - **Automatic price calculation** based on supply and demand
 - **Graduation triggers** for liquidity, holders, and time
 
-### 💰 Tax Structure
+###  Tax Structure
 - **Bonding Phase**: 4% total tax on all buy/sell orders
   - Creator: 2% (200 bps)
   - Protocol: 1% (100 bps) 
@@ -20,7 +20,7 @@ A Solana program that implements bonding curve mechanics for token launches with
   - Protocol: 0.5% (50 bps)
   - Seed Vault: 0.2% (20 bps)
 
-### 🎓 Graduation Conditions
+###  Graduation Conditions
 - **Liquidity**: 80 SOL total volume
 - **Automatic**: Graduates when liquidity threshold is reached
 

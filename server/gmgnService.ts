@@ -95,6 +95,7 @@ type TokenTradesOptions = {
 const GMGN_ENDPOINT =
     "https://gmgn.ai/vas/api/v1/rank/sol?device_id=49b22ff5-7016-40e2-8e02-d44bd418ffbc&fp_did=48c16a59351f207653dee11a1d5a84e4&client_id=gmgn_web_20251029-6163-7261a63&from_app=gmgn&app_ver=20251029-6163-7261a63&tz_name=Africa%2FLagos&tz_offset=3600&app_lang=en-US&os=web";
 const GMGN_SEARCH_ENDPOINT = "https://gmgn.ai/vas/api/v1/search_v2";
+const GMGN_SEARCH_V3_ENDPOINT = "https://gmgn.ai/vas/api/v1/search_v3";
 const GMGN_TOKEN_TRADES_BASE = "https://gmgn.ai/vas/api/v1/token_trades/sol";
 const GMGN_TOKEN_HOLDERS_BASE = "https://gmgn.ai/vas/api/v1/token_holders/sol";
 const GMGN_SEARCH_DEFAULT_PARAMS = {
@@ -963,4 +964,30 @@ export const gmgnService = {
     getTokenHolders: (mint: string, opts: { limit?: number; orderby?: string; direction?: string; cost?: number } = {}) => fetchTokenHolders(mint, opts),
     shutdown: () => shutdownGmgnResources(),
     isPolling: () => isPollingActive,
+    // Direct v3 lookup (simple GET JSON) - preferred for token-by-mint lookups
+    lookup: async (query: string, chain = 'sol') => {
+        if (!query || typeof query !== 'string') return null;
+
+        const params = new URLSearchParams({
+            ...GMGN_SEARCH_DEFAULT_PARAMS,
+            chain,
+            q: query,
+        }).toString();
+
+        const url = `${GMGN_SEARCH_V3_ENDPOINT}?${params}`;
+
+        try {
+            const response = await fetch(url, { headers: GMGN_HEADERS });
+            if (!response.ok) {
+                throw new Error(`GMGN v3 lookup failed: ${response.status}`);
+            }
+            const json = await response.json();
+            const coins = json?.data?.coins ?? [];
+            // Return first matching coin or null
+            return Array.isArray(coins) && coins.length > 0 ? coins : null;
+        } catch (error) {
+            console.error('[GMGN] lookup v3 error:', error);
+            return null;
+        }
+    },
 };

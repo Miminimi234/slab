@@ -717,6 +717,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GMGN v3 direct lookup route - used by Market page for token-by-mint
+  app.get("/api/gmgn/lookup", async (req, res) => {
+    try {
+      const query = typeof req.query.q === "string" ? req.query.q : typeof req.query.query === 'string' ? req.query.query : undefined;
+      const chain = typeof req.query.chain === "string" ? req.query.chain : "sol";
+
+      if (!query || typeof query !== "string" || !query.trim()) {
+        return res.status(400).json({ success: false, error: "Query parameter 'q' is required" });
+      }
+
+      const coins = await gmgnService.lookup(query.trim(), chain);
+      if (!coins) {
+        return res.json({ success: true, data: { coins: [] } });
+      }
+
+      // Normalize the primary coin(s) into a compact response the front-end expects
+      const normalized = (coins as any[]).map((c) => ({
+        chain: c.chain ?? chain,
+        address: c.address ?? c.id ?? c.mint ?? null,
+        name: c.name ?? c.symbol ?? null,
+        symbol: c.symbol ?? null,
+        logo: c.logo ?? c.icon ?? null,
+        price: c.price ?? c.usdPrice ?? null,
+        holder_count: c.holder_count ?? c.holderCount ?? null,
+        liquidity: c.liquidity ?? null,
+        market_cap: c.mcp ?? c.mcap ?? null,
+        original: c,
+      }));
+
+      res.json({ success: true, data: { coins: normalized } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("[GMGN] lookup route error:", message);
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // Fetch token trades for a given mint via GMGN
   app.get("/api/gmgn/trades/:mint", async (req, res) => {
     try {
