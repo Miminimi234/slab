@@ -1,5 +1,6 @@
 ﻿import marketsData from "@/mocks/markets.json";
 import type { Market, OrderBook, Trade } from "@shared/schema";
+import jupiterClient from "./jupiterClient";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -218,6 +219,7 @@ export function stopRealtimeUpdates() {
 }
 
 export async function fetchJupiterRecentTokens(): Promise<JupiterRecentSnapshot | null> {
+  // Keep recent-token snapshot fetching on the backend (server proxy).
   try {
     const response = await fetch("/api/jupiter/recent");
     if (!response.ok) {
@@ -324,19 +326,12 @@ export function subscribeToJupiterTopTrendingTokens(
 }
 
 export async function fetchJupiterTokenByMint(mintAddress: string): Promise<JupiterToken | null> {
+  // Fully client-side: resolve token metadata by mint using public Jupiter tokenlists/cache
   try {
-    const response = await fetch(`/api/jupiter/search?query=${encodeURIComponent(mintAddress)}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Jupiter token: ${response.status}`);
-    }
-    const data = await response.json();
-    const tokens = data.tokens || [];
-
-    // Find the exact match by mint address (id)
-    const token = tokens.find((t: JupiterToken) => t.id === mintAddress);
-    return token || null;
+    const direct = await jupiterClient.fetchJupiterTokenByMintDirect(mintAddress);
+    return direct;
   } catch (error) {
-    console.error("fetchJupiterTokenByMint error:", error);
+    console.error("fetchJupiterTokenByMint (client) error:", error);
     return null;
   }
 }
