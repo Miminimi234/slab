@@ -1,5 +1,6 @@
 ﻿import marketsData from "@/mocks/markets.json";
 import type { Market, OrderBook, Trade } from "@shared/schema";
+import { fetchJupiterTokenByMintDirect } from "./jupiterClient";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -331,13 +332,17 @@ export async function fetchJupiterTokenByMint(mintAddress: string): Promise<Jupi
   try {
     const resp = await fetch(`/api/gmgn/lookup?q=${encodeURIComponent(mintAddress)}&chain=sol`);
     if (!resp.ok) {
-      console.error(`fetchJupiterTokenByMint: gmgn lookup failed (status ${resp.status})`);
-      return null;
+      console.error(`fetchJupiterTokenByMint: gmgn lookup failed (status ${resp.status}), falling back to direct Jupiter tokenlist`);
+      // Fallback: try direct Jupiter token-list lookup
+      return await fetchJupiterTokenByMintDirect(mintAddress);
     }
 
     const body = await resp.json();
     const coins = body?.data?.coins ?? [];
-    if (!Array.isArray(coins) || coins.length === 0) return null;
+    if (!Array.isArray(coins) || coins.length === 0) {
+      // If GMGN returned no results, fallback to direct Jupiter tokenlist lookup
+      return await fetchJupiterTokenByMintDirect(mintAddress);
+    }
 
     const c = coins[0];
     return {
